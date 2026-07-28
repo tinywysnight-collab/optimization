@@ -15,6 +15,11 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# Without this the Jinja template is left out of the wheel and rendering the
+# HTML report raises TemplateNotFound in any installed copy.
+[tool.setuptools.package-data]
+hascore = ["report/*.j2"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

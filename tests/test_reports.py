@@ -73,3 +73,15 @@ def test_html_escapes_untrusted_strings():
     assert "<img src=x" not in html
     assert "<b>bold</b>" not in html
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+
+
+def test_template_is_declared_as_package_data():
+    """The Jinja template must ship inside the wheel. setuptools excludes
+    non-Python files unless declared, and a source-tree test cannot tell the
+    difference — so guard the packaging declaration itself."""
+    import tomllib
+    from pathlib import Path
+
+    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    package_data = tomllib.loads(pyproject.read_text())["tool"]["setuptools"]["package-data"]
+    assert any(pattern.endswith(".j2") for pattern in package_data["hascore"])
