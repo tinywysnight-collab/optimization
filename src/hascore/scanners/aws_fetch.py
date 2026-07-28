@@ -154,10 +154,14 @@ def fetch_elasticache(session: Any, region: str) -> dict[str, Any]:
     c = session.client("elasticache", region_name=region)
     groups = _paginate(c, "describe_replication_groups", "ReplicationGroups")
     clusters = _paginate(c, "describe_cache_clusters", "CacheClusters")
+    # describe_serverless_caches has a registered botocore paginator (verified via
+    # client.can_paginate("describe_serverless_caches") == True), so _paginate applies here too.
+    serverless_caches = _paginate(c, "describe_serverless_caches", "ServerlessCaches")
     tags_by_arn: dict[str, dict[str, str]] = {}
-    for resource in [*groups, *clusters]:
+    for resource in [*groups, *clusters, *serverless_caches]:
         arn = resource.get("ARN")
         if arn:
             tags_by_arn[arn] = tags_to_dict(
                 c.list_tags_for_resource(ResourceName=arn).get("TagList", []))
-    return {"replication_groups": groups, "cache_clusters": clusters, "tags_by_arn": tags_by_arn}
+    return {"replication_groups": groups, "cache_clusters": clusters,
+            "serverless_caches": serverless_caches, "tags_by_arn": tags_by_arn}

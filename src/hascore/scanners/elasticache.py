@@ -12,6 +12,7 @@ _SCORED_ENGINES = ("redis", "valkey")
 
 
 def evaluate_elasticache_multiaz(replication_groups: list[AwsDict], cache_clusters: list[AwsDict],
+                                 serverless_caches: list[AwsDict],
                                  tags_by_arn: dict[str, dict[str, str]], region: str) -> list[ResourceScore]:
     results: list[ResourceScore] = []
     for group in replication_groups:
@@ -40,10 +41,18 @@ def evaluate_elasticache_multiaz(replication_groups: list[AwsDict], cache_cluste
             reason = (f"engine '{engine}' has no replication mechanism; out of scoring "
                       "scope, recorded N/A")
             results.append(ResourceScore(SERVICE, ccid, region, None, reason))
+
+    for cache in serverless_caches:
+        scid = cache["ServerlessCacheName"]
+        engine = cache.get("Engine", "")
+        reason = (f"ElastiCache Serverless cache (engine '{engine}') is managed cross-AZ by AWS "
+                  "and has no user-configurable HA setting; out of scoring scope, recorded N/A")
+        results.append(ResourceScore(SERVICE, scid, region, None, reason))
     return results
 
 
 def evaluate_elasticache_crossregion(replication_groups: list[AwsDict], cache_clusters: list[AwsDict],
+                                     serverless_caches: list[AwsDict],
                                      tags_by_arn: dict[str, dict[str, str]],
                                      primary_region: str) -> list[ResourceScore]:
     results: list[ResourceScore] = []
@@ -66,6 +75,13 @@ def evaluate_elasticache_crossregion(replication_groups: list[AwsDict], cache_cl
         score, exempted, suffix = apply_exemption(0.0, tags, CROSSREGION_TAG)
         reason = "standalone single node, not part of any Global Datastore" + suffix
         results.append(ResourceScore(SERVICE, ccid, primary_region, score, reason, exempted))
+
+    for cache in serverless_caches:
+        scid = cache["ServerlessCacheName"]
+        engine = cache.get("Engine", "")
+        reason = (f"ElastiCache Serverless cache (engine '{engine}') has no Global Datastore "
+                  "equivalent; out of scoring scope, recorded N/A")
+        results.append(ResourceScore(SERVICE, scid, primary_region, None, reason))
     return results
 
 
@@ -74,8 +90,10 @@ def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     raw = fetch_elasticache(session, primary)
     out = ServiceScan()
     out.multi_az = evaluate_elasticache_multiaz(
-        raw["replication_groups"], raw["cache_clusters"], raw["tags_by_arn"], primary)
+        raw["replication_groups"], raw["cache_clusters"], raw["serverless_caches"],
+        raw["tags_by_arn"], primary)
     if len(spec.regions) > 1:
         out.cross_region = evaluate_elasticache_crossregion(
-            raw["replication_groups"], raw["cache_clusters"], raw["tags_by_arn"], primary)
+            raw["replication_groups"], raw["cache_clusters"], raw["serverless_caches"],
+            raw["tags_by_arn"], primary)
     return out
