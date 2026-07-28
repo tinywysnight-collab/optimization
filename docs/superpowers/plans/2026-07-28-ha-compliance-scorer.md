@@ -25,7 +25,7 @@ src/hascore/
   scanners/
     __init__.py
     aws_fetch.py       # thin boto3 wrappers (all AWS I/O lives here)
-    rds.py  efs.py  asg.py  opensearch.py  fsx.py  elasticache.py  elb.py
+    rds.py  efs.py  asg.py  opensearch.py  fsx.py  elasticache.py  elb.py  eks.py
   report/
     __init__.py
     json_report.py
@@ -34,7 +34,7 @@ src/hascore/
 tests/
   test_tags.py test_aggregation.py test_naming.py test_input_loader.py
   test_profile_resolver.py test_rds.py test_efs.py test_asg.py
-  test_opensearch.py test_fsx.py test_elasticache.py test_elb.py
+  test_opensearch.py test_fsx.py test_elasticache.py test_elb.py test_eks.py
   test_scan_runner.py test_reports.py test_cli.py
 ```
 
@@ -1138,7 +1138,7 @@ git commit -m "feat: EFS multi-AZ and cross-region evaluators"
 
 ```python
 # tests/test_asg.py
-from hascore.scanners.asg import asg_match_value, evaluate_asg_crossregion, evaluate_asg_multiaz
+from hascore.scanners.asg import evaluate_asg_crossregion, evaluate_asg_multiaz, is_eks_asg
 
 R = "us-east-1"
 
@@ -1177,10 +1177,9 @@ def test_eks_origin_noted_in_reason():
     assert "EKS" in scores["eks-ng-1234-uuid"].reason
 
 
-def test_match_value_prefers_eks_nodegroup_tag():
-    g = group("eks-ng-1234-uuid", ["us-east-1a"], tags=[("eks:nodegroup-name", "app-us-east-1-nodes")])
-    assert asg_match_value(g) == "app-us-east-1-nodes"
-    assert asg_match_value(group("plain", ["us-east-1a"])) == "plain"
+def test_is_eks_asg_detects_cluster_tag():
+    assert is_eks_asg(group("eks-ng-1234-uuid", ["us-east-1a"], tags=[("eks:cluster-name", "prod")]))
+    assert not is_eks_asg(group("plain", ["us-east-1a"]))
 
 
 def test_cross_region_name_match_scores_20():
@@ -1196,6 +1195,16 @@ def test_cross_region_no_match_scores_0():
     g = group("myapp-web", ["us-east-1a"])
     scores = by_id(evaluate_asg_crossregion([g], {"eu-west-1": {"other"}}, R))
     assert scores["myapp-web"].score == 0.0
+
+
+def test_cross_region_skips_eks_node_group_asgs():
+    # EKS is scored at the cluster level in its own dimension (spec §6)
+    groups = [
+        group("eks-40bbb26b-8679-eb64", ["us-east-1a"], tags=[("eks:cluster-name", "prod")]),
+        group("myapp-web", ["us-east-1a"]),
+    ]
+    scores = by_id(evaluate_asg_crossregion(groups, {"eu-west-1": {"myapp-web"}}, R))
+    assert set(scores) == {"myapp-web"}
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1215,14 +1224,12 @@ from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption, tags_to_dict
 
 SERVICE = "asg"
 EKS_CLUSTER_TAG = "eks:cluster-name"
-EKS_NODEGROUP_TAG = "eks:nodegroup-name"
 
 
-def asg_match_value(group: dict) -> str:
-    """Value used for cross-region name matching: EKS nodegroup name if present,
-    else the ASG name (managed nodegroup ASG names carry random suffixes)."""
-    tags = tags_to_dict(group.get("Tags"))
-    return tags.get(EKS_NODEGROUP_TAG) or group["AutoScalingGroupName"]
+def is_eks_asg(group: dict) -> bool:
+    """EKS node-group ASGs are excluded from cross-region scoring: their names are
+    AWS-generated random strings and EKS is matched at the cluster level (spec §6)."""
+    return EKS_CLUSTER_TAG in tags_to_dict(group.get("Tags"))
 
 
 def evaluate_asg_multiaz(groups: list[dict], region: str) -> list[ResourceScore]:
@@ -1248,9 +1255,11 @@ def evaluate_asg_crossregion(groups: list[dict], standby_names: dict[str, set[st
     """standby_names: {standby_region: set of region-stripped match values}."""
     results: list[ResourceScore] = []
     for g in groups:
+        if is_eks_asg(g):
+            continue  # scored by the eks dimension at the cluster level
         name = g["AutoScalingGroupName"]
         tags = tags_to_dict(g.get("Tags"))
-        mv = strip_region(asg_match_value(g))
+        mv = strip_region(name)
         hits = sorted(r for r, names in standby_names.items() if mv in names)
         if hits:
             score = 20.0
@@ -1268,7 +1277,7 @@ def evaluate_asg_crossregion(groups: list[dict], standby_names: dict[str, set[st
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `.venv/bin/pytest tests/test_asg.py -v`
-Expected: 6 passed
+Expected: 7 passed
 
 - [ ] **Step 5: Commit**
 
@@ -1971,13 +1980,126 @@ git commit -m "feat: ELB multi-AZ (NLB only) and cross-region evaluators"
 
 ---
 
+### Task 12c: EKS cross-region evaluator
+
+EKS is scored at the **cluster** level in the cross-region dimension only (spec §6). Node-group ASGs are excluded from ASG cross-region scoring (Task 9) and remain scored in the Multi-AZ dimension under `asg`.
+
+**Files:**
+- Create: `src/hascore/scanners/eks.py`
+- Test: `tests/test_eks.py`
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+# tests/test_eks.py
+from hascore.scanners.eks import evaluate_eks_crossregion
+
+R = "ap-south-1"
+
+
+def cluster(name, tags=None):
+    return {"name": name, "tags": tags or {}}
+
+
+def by_id(scores):
+    return {s.resource_id: s for s in scores}
+
+
+def test_cluster_name_match_scores_20():
+    # 'abc-ap-south-1-abc' and 'abc-ap-south-2-abc' both strip to 'abc-abc'
+    scores = by_id(evaluate_eks_crossregion(
+        [cluster("abc-ap-south-1-abc")], {"ap-south-2": {"abc-abc"}}, R))
+    assert scores["abc-ap-south-1-abc"].score == 20.0
+    assert "heuristic" in scores["abc-ap-south-1-abc"].reason
+    assert "ap-south-2" in scores["abc-ap-south-1-abc"].reason
+
+
+def test_no_matching_cluster_scores_0():
+    scores = by_id(evaluate_eks_crossregion(
+        [cluster("payments-ap-south-1")], {"ap-south-2": {"billing"}}, R))
+    assert scores["payments-ap-south-1"].score == 0.0
+    assert "no EKS cluster matching" in scores["payments-ap-south-1"].reason
+
+
+def test_exemption_tag_floors_to_10():
+    scores = by_id(evaluate_eks_crossregion(
+        [cluster("solo", tags={"disable-crossregion": "yes"})], {"ap-south-2": set()}, R))
+    assert scores["solo"].score == 10.0 and scores["solo"].exempted
+
+
+def test_multiple_standby_regions_all_listed():
+    scores = by_id(evaluate_eks_crossregion(
+        [cluster("abc-ap-south-1-abc")],
+        {"ap-south-2": {"abc-abc"}, "eu-west-1": {"abc-abc"}}, R))
+    reason = scores["abc-ap-south-1-abc"].reason
+    assert "ap-south-2" in reason and "eu-west-1" in reason
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `.venv/bin/pytest tests/test_eks.py -v`
+Expected: FAIL — `ImportError`
+
+- [ ] **Step 3: Write `src/hascore/scanners/eks.py`**
+
+```python
+"""EKS evaluator (spec §6): cross-region dimension only, cluster-level name matching.
+
+Clusters are passed as normalized dicts: {"name": str, "tags": dict}.
+Managed node-group ASG names are AWS-generated random strings, so cross-region
+matching must happen at the cluster level; this also covers Fargate-only clusters.
+"""
+from __future__ import annotations
+
+from ..models import ResourceScore
+from ..naming import strip_region
+from ..tags import CROSSREGION_TAG, apply_exemption
+
+SERVICE = "eks"
+
+
+def evaluate_eks_crossregion(clusters: list[dict], standby_names: dict[str, set[str]],
+                             primary_region: str) -> list[ResourceScore]:
+    """standby_names: {standby_region: set of region-stripped cluster names}."""
+    results: list[ResourceScore] = []
+    for c in clusters:
+        name = c["name"]
+        mv = strip_region(name)
+        hits = sorted(r for r, names in standby_names.items() if mv in names)
+        if hits:
+            score = 20.0
+            reason = (f"name-matching heuristic: after region-stripping ('{mv}'), a matching "
+                      f"EKS cluster exists in {', '.join(hits)}")
+        else:
+            score = 0.0
+            reason = (f"name-matching heuristic: no EKS cluster matching '{mv}' found in "
+                      f"standby region(s) {', '.join(sorted(standby_names))}")
+        score, exempted, suffix = apply_exemption(score, c.get("tags", {}), CROSSREGION_TAG)
+        results.append(ResourceScore(SERVICE, name, primary_region, score, reason + suffix, exempted))
+    return results
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `.venv/bin/pytest tests/test_eks.py -v`
+Expected: 4 passed
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/hascore/scanners/eks.py tests/test_eks.py
+git commit -m "feat: EKS cluster-level cross-region evaluator"
+```
+
+---
+
 ### Task 13: AWS fetch layer and per-service scan glue
 
 The fetch layer is the only place that talks to boto3. Each service module gains a `scan(session, spec) -> ServiceScan` function combining fetch + evaluate. Fetch functions are thin pass-throughs; `_paginate` gets a unit test, the glue is exercised end-to-end in Task 17 with fake sessions.
 
 **Files:**
 - Create: `src/hascore/scanners/aws_fetch.py`
-- Modify: `src/hascore/scanners/rds.py`, `efs.py`, `asg.py`, `opensearch.py`, `fsx.py`, `elasticache.py`, `elb.py` (append `scan()`)
+- Modify: `src/hascore/scanners/rds.py`, `efs.py`, `asg.py`, `opensearch.py`, `fsx.py`, `elasticache.py`, `elb.py`, `eks.py` (append `scan()`)
 - Test: `tests/test_aws_fetch.py`
 
 - [ ] **Step 1: Write the failing test for `_paginate`**
@@ -2092,6 +2214,22 @@ def fetch_fsx_windows_names(session, region: str) -> list[str]:
     return names
 
 
+def fetch_eks(session, region: str) -> dict:
+    """EKS clusters as [{'name', 'tags'}]; tags come from DescribeCluster."""
+    c = session.client("eks", region_name=region)
+    names = _paginate(c, "list_clusters", "clusters")
+    clusters = []
+    for name in names:
+        described = c.describe_cluster(name=name).get("cluster", {})
+        clusters.append({"name": name, "tags": described.get("tags", {}) or {}})
+    return {"clusters": clusters}
+
+
+def fetch_eks_cluster_names(session, region: str) -> list[str]:
+    c = session.client("eks", region_name=region)
+    return _paginate(c, "list_clusters", "clusters")
+
+
 def fetch_elb(session, region: str) -> dict:
     """Merge ELBv2 (ALB/NLB) and Classic ELB into [{'name', 'type', 'tags'}]."""
     merged: list[dict] = []
@@ -2199,7 +2337,8 @@ def scan(session, spec):
     out.multi_az = evaluate_asg_multiaz(groups, primary)
     if len(spec.regions) > 1:
         standby_names = {
-            r: {strip_region(asg_match_value(g)) for g in fetch_asg(session, r)["groups"]}
+            r: {strip_region(g["AutoScalingGroupName"])
+                for g in fetch_asg(session, r)["groups"] if not is_eks_asg(g)}
             for r in spec.regions[1:]
         }
         out.cross_region = evaluate_asg_crossregion(groups, standby_names, primary)
@@ -2246,6 +2385,24 @@ def scan(session, spec):
             out.notes_cross_region.append(ServiceNote(SERVICE, (
                 "FSx has no native cross-region replication (AWS Backup copies are backups, "
                 "not standby), so cross-region scoring uses the Name-tag matching heuristic")))
+    return out
+```
+
+Append to `src/hascore/scanners/eks.py`:
+
+```python
+def scan(session, spec):
+    from ..models import ServiceScan
+    from .aws_fetch import fetch_eks, fetch_eks_cluster_names
+    primary = spec.regions[0]
+    out = ServiceScan()
+    if len(spec.regions) > 1:  # EKS is scored in the cross-region dimension only (spec §6)
+        clusters = fetch_eks(session, primary)["clusters"]
+        standby_names = {
+            r: {strip_region(n) for n in fetch_eks_cluster_names(session, r)}
+            for r in spec.regions[1:]
+        }
+        out.cross_region = evaluate_eks_crossregion(clusters, standby_names, primary)
     return out
 ```
 
@@ -2400,8 +2557,8 @@ def test_scan_all_returns_result_per_spec(monkeypatch):
     assert len(results) == 2
 
 
-def test_scanner_registry_covers_all_seven_services():
-    assert set(SCANNERS) == {"rds", "efs", "asg", "opensearch", "fsx", "elasticache", "elb"}
+def test_scanner_registry_covers_all_eight_services():
+    assert set(SCANNERS) == {"rds", "efs", "asg", "opensearch", "fsx", "elasticache", "elb", "eks"}
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -2419,7 +2576,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from .aggregation import finalize_dimension
 from .models import AccountResult, AccountSpec, ServiceNote
-from .scanners import asg, efs, elasticache, elb, fsx, opensearch, rds
+from .scanners import asg, efs, eks, elasticache, elb, fsx, opensearch, rds
 
 SCANNERS = {
     "rds": rds.scan,
@@ -2429,6 +2586,7 @@ SCANNERS = {
     "fsx": fsx.scan,
     "elasticache": elasticache.scan,
     "elb": elb.scan,
+    "eks": eks.scan,
 }
 
 
@@ -2941,7 +3099,7 @@ git commit -m "feat: CLI entry point with end-to-end wiring test"
 | §3 authentication / profile matching | Task 6, Task 14 (inaccessible), Task 17 (CLI resolution) |
 | §4 two-level aggregation | Task 3 |
 | §5.1–5.7 multi-AZ criteria | Tasks 7–12b |
-| §6 cross-region criteria + name matching | Task 4 (naming), Tasks 7–12b (evaluators, incl. FSx Name-tag matching in Task 11), Task 13 (standby fetches) |
+| §6 cross-region criteria + name matching | Task 4 (naming), Tasks 7–12c (evaluators, incl. FSx Name-tag matching in Task 11 and cluster-level EKS in Task 12c), Task 13 (standby fetches) |
 | §7 exemption tags | Task 2, exercised in every evaluator test |
 | §8 N/A semantics / fault tolerance | Task 14 |
 | §9 JSON + HTML output | Tasks 15–16 |
