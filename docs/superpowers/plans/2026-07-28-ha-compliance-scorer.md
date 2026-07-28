@@ -1160,7 +1160,7 @@ def evaluate_efs_crossregion(filesystems: list[AwsDict], replications: list[AwsD
         tags = tags_to_dict(fs.get("Tags"))
         dests = dest_by_fs.get(fsid, set())
         if dests:
-            reg = sorted(dests)[0]
+            reg = min(dests)  # ruff FURB192: min() over sorted()[0]
             reason = f"EFS replication configured to {', '.join(sorted(dests))}"
             if reg not in declared_regions:
                 reason += " (region not in the declared regions list)"
