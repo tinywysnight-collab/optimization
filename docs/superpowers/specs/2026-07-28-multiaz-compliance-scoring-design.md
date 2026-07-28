@@ -5,7 +5,7 @@ Status: pending user approval
 
 ## 1. Goal
 
-A Python CLI tool that scans an externally supplied list of AWS accounts for high-availability compliance and produces two independent scores per account (each out of 20):
+A Python library entry point that scans a caller-supplied list of AWS accounts for high-availability compliance and returns two independent scores per account (each out of 20):
 
 - **Multi-AZ score**: whether resources in the primary region have AZ-level redundancy;
 - **Cross-Region score**: whether primary-region resources have a deployment/standby in another region (only multi-region accounts are scored).
@@ -14,7 +14,7 @@ Every score for every resource must carry a **specific, truthful reason** (which
 
 ## 2. Input contract
 
-An external system supplies the account list (JSON file):
+The caller passes the account list in as a payload (a mapping, shown here as JSON):
 
 ```json
 {
@@ -157,7 +157,11 @@ Core principle: **"not scanned" and "scanned and found bad" are never conflated;
 
 - **JSON (source of truth)**: org summary → per account (both scores, inaccessible flag) → per service dimension score → per resource (score, reason, region, exemption flag, pass-through `pattern_id` / `application`).
 - **HTML (human report)**: single self-contained file (no external resources). Structure: org summary table (both scores per account) → account detail (service dimension scores) → resource detail (scores and reasons). Shows `pattern_id` / application details, inaccessible accounts, and the out-of-scope resource list.
-- Run mode: **one-shot CLI**; one run produces one JSON + one HTML. Trend tracking and persistence are out of scope for v1.
+- Run mode: **a single callable entry point**, `main(payload, output_format)`, returning the result rather than writing files:
+  - `output_format="json"` returns the report as a dict; the caller decides whether to serialize it.
+  - `output_format="html"` returns a self-contained HTML document as a string.
+  - Both formats render from the same scan; `render_html(report)` produces HTML from an already-returned JSON report without rescanning.
+- No command-line interface, no reading the payload from disk, no writing report files — the caller owns all I/O. Trend tracking and persistence are out of scope for v1.
 
 ## 10. Scale and concurrency
 
@@ -167,7 +171,7 @@ Core principle: **"not scanned" and "scanned and found bad" are never conflated;
 
 ## 11. Technology choices
 
-- **Python 3.11+ / boto3**, CLI tool.
+- **Python 3.11+ / boto3**, imported as a library (`from hascore import main`).
 - Required AWS permissions: read-only `Describe*/List*` (covered by `ReadOnlyAccess` or `SecurityAudit`).
 - HTML rendered with a template engine (Jinja2); JSON is the primary artifact, HTML is rendered from the same data.
 - Testing: pytest; the AWS API layer is wrapped behind injectable interfaces; the scoring engine is pure functions, unit-testable offline.
