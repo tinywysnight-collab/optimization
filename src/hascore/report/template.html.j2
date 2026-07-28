@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AWS HA Compliance Report</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", sans-serif; margin: 2rem; color: #1a1a2e; }
+  h1 { font-size: 1.5rem; } h2 { font-size: 1.2rem; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; }
+  th, td { border: 1px solid #d0d0e0; padding: 0.4rem 0.6rem; text-align: left; font-size: 0.9rem; }
+  th { background: #f0f0f8; }
+  .good { background: #e6f6e6; } .bad { background: #fbe9e9; }
+  .partial { background: #fdf6e3; } .na { color: #888; }
+  .inaccessible { background: #fbe9e9; font-weight: bold; }
+  .reason { color: #444; font-size: 0.85rem; }
+  details { margin: 0.5rem 0 1.5rem; }
+  summary { cursor: pointer; font-weight: 600; padding: 0.3rem 0; }
+</style>
+</head>
+<body>
+<h1>AWS HA Compliance Report</h1>
+<p>Generated at {{ report.generated_at }} —
+{{ report.summary.total_accounts }} account(s),
+{{ report.summary.inaccessible_accounts | length }} inaccessible.</p>
+
+{% macro score_cell(value) -%}
+{% if value is none %}<td class="na">N/A</td>
+{% elif value >= 15 %}<td class="good">{{ value }}</td>
+{% elif value >= 10 %}<td class="partial">{{ value }}</td>
+{% else %}<td class="bad">{{ value }}</td>{% endif %}
+{%- endmacro %}
+
+<h2>Organization summary</h2>
+<table>
+<tr><th>Account</th><th>Pattern</th><th>Regions</th><th>Application</th>
+    <th>Multi-AZ /20</th><th>Cross-Region /20</th></tr>
+{% for a in report.accounts %}
+<tr {% if not a.accessible %}class="inaccessible"{% endif %}>
+  <td>{{ a.account_id }}</td>
+  <td>{{ a.pattern_id or "" }}</td>
+  <td>{{ a.regions | join(", ") }}</td>
+  <td>{{ a.application }}</td>
+  {% if a.accessible %}{{ score_cell(a.scores.multi_az) }}{{ score_cell(a.scores.cross_region) }}
+  {% else %}<td colspan="2">INACCESSIBLE: {{ a.error }}</td>{% endif %}
+</tr>
+{% endfor %}
+</table>
+
+<h2>Account details</h2>
+{% for a in report.accounts if a.accessible %}
+<details>
+<summary>{{ a.account_id }} — Multi-AZ:
+{{ a.scores.multi_az if a.scores.multi_az is not none else "N/A" }}/20,
+Cross-Region:
+{{ a.scores.cross_region if a.scores.cross_region is not none else "N/A" }}/20</summary>
+{% for dim_name, dim in a.dimensions.items() %}
+<h3>{{ dim_name.replace("_", "-") }}</h3>
+{% if dim.service_scores %}
+<table>
+<tr><th>Service</th><th>Dimension score /20</th></tr>
+{% for svc, sc in dim.service_scores.items() %}
+<tr><td>{{ svc }}</td>{{ score_cell(sc) }}</tr>
+{% endfor %}
+</table>
+{% endif %}
+{% if dim.resources %}
+<table>
+<tr><th>Service</th><th>Resource</th><th>Region</th><th>Score</th><th>Reason</th></tr>
+{% for r in dim.resources %}
+<tr><td>{{ r.service }}</td><td>{{ r.resource_id }}</td><td>{{ r.region }}</td>
+{{ score_cell(r.score) }}<td class="reason">{{ r.reason }}{% if r.exempted %} [EXEMPTED]{% endif %}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+{% for note in dim.notes %}
+<p class="reason">Note ({{ note.service }}): {{ note.message }}</p>
+{% endfor %}
+{% endfor %}
+</details>
+{% endfor %}
+</body>
+</html>

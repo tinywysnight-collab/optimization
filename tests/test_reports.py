@@ -35,3 +35,23 @@ def test_summary_counts_inaccessible():
     assert report["summary"]["total_accounts"] == 2
     assert report["summary"]["inaccessible_accounts"] == ["999999999999"]
     assert "generated_at" in report
+
+
+from hascore.report.html_report import render_html
+
+
+def test_html_contains_scores_reasons_and_metadata():
+    html = render_html(build_report([make_result()]))
+    assert "123456789012" in html
+    assert "MultiAZ is enabled" in html
+    assert "P1" in html
+    assert "N/A" in html  # cross-region score for this account
+    assert "<html" in html.lower()
+
+
+def test_html_flags_inaccessible_accounts():
+    bad = AccountResult(spec=AccountSpec("999999999999", ["us-east-1"]),
+                        accessible=False, error="no profile")
+    html = render_html(build_report([bad]))
+    assert "999999999999" in html
+    assert "inaccessible" in html.lower()
