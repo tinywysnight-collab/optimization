@@ -1455,7 +1455,7 @@ git commit -m "feat: OpenSearch multi-AZ and cross-region evaluators"
 
 ---
 
-### Task 11: FSx evaluator
+### Task 11: FSx evaluators
 
 **Files:**
 - Create: `src/hascore/scanners/fsx.py`
@@ -1465,7 +1465,7 @@ git commit -m "feat: OpenSearch multi-AZ and cross-region evaluators"
 
 ```python
 # tests/test_fsx.py
-from hascore.scanners.fsx import evaluate_fsx_multiaz
+from hascore.scanners.fsx import evaluate_fsx_crossregion, evaluate_fsx_multiaz, fsx_match_value
 
 R = "us-east-1"
 
@@ -1503,6 +1503,46 @@ def test_non_windows_types_are_na_with_explicit_note():
     assert scores["fs-l"].score is None
     assert "FSx for Windows only" in scores["fs-l"].reason
     assert "LUSTRE" in scores["fs-l"].reason
+
+
+# --- cross-region ---
+
+def test_match_value_is_the_name_tag():
+    assert fsx_match_value(fs("fs-1", tags=[("Name", "share-us-east-1")])) == "share-us-east-1"
+    assert fsx_match_value(fs("fs-1")) is None
+
+
+def test_cross_region_name_match_scores_20():
+    filesystems = [fs("fs-1", tags=[("Name", "share-us-east-1")])]
+    scores = by_id(evaluate_fsx_crossregion(filesystems, {"eu-west-1": {"share"}}, R))
+    assert scores["fs-1"].score == 20.0
+    assert "heuristic" in scores["fs-1"].reason
+    assert "eu-west-1" in scores["fs-1"].reason
+
+
+def test_cross_region_no_match_scores_0():
+    filesystems = [fs("fs-1", tags=[("Name", "share")])]
+    scores = by_id(evaluate_fsx_crossregion(filesystems, {"eu-west-1": {"other"}}, R))
+    assert scores["fs-1"].score == 0.0
+
+
+def test_windows_without_name_tag_scores_0_not_na():
+    scores = by_id(evaluate_fsx_crossregion([fs("fs-1")], {"eu-west-1": {"share"}}, R))
+    assert scores["fs-1"].score == 0.0
+    assert "no 'Name' tag" in scores["fs-1"].reason
+
+
+def test_cross_region_exemption_floors_to_10():
+    filesystems = [fs("fs-1", tags=[("Name", "share"), ("disable-crossregion", "")])]
+    scores = by_id(evaluate_fsx_crossregion(filesystems, {"eu-west-1": set()}, R))
+    assert scores["fs-1"].score == 10.0 and scores["fs-1"].exempted
+
+
+def test_cross_region_non_windows_is_na():
+    scores = by_id(evaluate_fsx_crossregion(
+        [fs("fs-l", fstype="LUSTRE", tags=[("Name", "scratch")])], {"eu-west-1": {"scratch"}}, R))
+    assert scores["fs-l"].score is None
+    assert "FSx for Windows only" in scores["fs-l"].reason
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1513,13 +1553,20 @@ Expected: FAIL — `ImportError`
 - [ ] **Step 3: Write `src/hascore/scanners/fsx.py`**
 
 ```python
-"""FSx evaluator (spec §5.5): Windows type only; other types recorded N/A."""
+"""FSx evaluators (spec §5.5, §6): Windows type only; other types recorded N/A."""
 from __future__ import annotations
 
 from ..models import ResourceScore
-from ..tags import MULTIAZ_TAG, apply_exemption, tags_to_dict
+from ..naming import strip_region
+from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption, tags_to_dict
 
 SERVICE = "fsx"
+NAME_TAG = "Name"
+
+
+def fsx_match_value(filesystem: dict) -> str | None:
+    """FSx ids are random, so the 'Name' tag is the only usable match value."""
+    return tags_to_dict(filesystem.get("Tags")).get(NAME_TAG)
 
 
 def evaluate_fsx_multiaz(filesystems: list[dict], region: str) -> list[ResourceScore]:
@@ -1541,18 +1588,53 @@ def evaluate_fsx_multiaz(filesystems: list[dict], region: str) -> list[ResourceS
         score, exempted, suffix = apply_exemption(score, tags, MULTIAZ_TAG)
         results.append(ResourceScore(SERVICE, fsid, region, score, reason + suffix, exempted))
     return results
+
+
+def evaluate_fsx_crossregion(filesystems: list[dict], standby_names: dict[str, set[str]],
+                             primary_region: str) -> list[ResourceScore]:
+    """standby_names: {standby_region: set of region-stripped Windows FSx 'Name' tags}."""
+    results: list[ResourceScore] = []
+    for fs in filesystems:
+        fsid = fs["FileSystemId"]
+        fstype = fs.get("FileSystemType", "UNKNOWN")
+        if fstype != "WINDOWS":
+            reason = (f"scoring covers FSx for Windows only; this resource is FSx type "
+                      f"{fstype}, recorded N/A")
+            results.append(ResourceScore(SERVICE, fsid, primary_region, None, reason))
+            continue
+        tags = tags_to_dict(fs.get("Tags"))
+        raw_name = fsx_match_value(fs)
+        if not raw_name:
+            score = 0.0
+            reason = ("no 'Name' tag to match on — FSx ids are random, so cross-region "
+                      "matching requires a Name tag; add one or apply the exception tag")
+        else:
+            mv = strip_region(raw_name)
+            hits = sorted(r for r, names in standby_names.items() if mv in names)
+            if hits:
+                score = 20.0
+                reason = (f"name-matching heuristic: after region-stripping the Name tag "
+                          f"('{mv}'), a matching Windows file system exists in {', '.join(hits)}")
+            else:
+                score = 0.0
+                reason = (f"name-matching heuristic: no Windows file system with Name tag "
+                          f"matching '{mv}' found in standby region(s) "
+                          f"{', '.join(sorted(standby_names))}")
+        score, exempted, suffix = apply_exemption(score, tags, CROSSREGION_TAG)
+        results.append(ResourceScore(SERVICE, fsid, primary_region, score, reason + suffix, exempted))
+    return results
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `.venv/bin/pytest tests/test_fsx.py -v`
-Expected: 3 passed
+Expected: 9 passed
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/hascore/scanners/fsx.py tests/test_fsx.py
-git commit -m "feat: FSx multi-AZ evaluator (Windows type only)"
+git commit -m "feat: FSx multi-AZ and cross-region evaluators (Windows type only)"
 ```
 
 ---
@@ -1936,6 +2018,17 @@ def fetch_fsx(session, region: str) -> dict:
     return {"filesystems": _paginate(c, "describe_file_systems", "FileSystems")}
 
 
+def fetch_fsx_windows_names(session, region: str) -> list[str]:
+    """'Name' tag values of Windows file systems, for cross-region name matching."""
+    names = []
+    for fs in fetch_fsx(session, region)["filesystems"]:
+        if fs.get("FileSystemType") == "WINDOWS":
+            name = tags_to_dict(fs.get("Tags")).get("Name")
+            if name:
+                names.append(name)
+    return names
+
+
 def fetch_elb(session, region: str) -> dict:
     """Merge ELBv2 (ALB/NLB) and Classic ELB into [{'name', 'type', 'tags'}]."""
     merged: list[dict] = []
@@ -2070,15 +2163,21 @@ Append to `src/hascore/scanners/fsx.py`:
 ```python
 def scan(session, spec):
     from ..models import ServiceNote, ServiceScan
-    from .aws_fetch import fetch_fsx
+    from .aws_fetch import fetch_fsx, fetch_fsx_windows_names
     primary = spec.regions[0]
     raw = fetch_fsx(session, primary)
     out = ServiceScan()
     out.multi_az = evaluate_fsx_multiaz(raw["filesystems"], primary)
-    if len(spec.regions) > 1 and raw["filesystems"]:
-        out.notes_cross_region.append(ServiceNote(SERVICE, (
-            "FSx has no native cross-region replication (AWS Backup copies are backups, "
-            "not standby); not scored in the cross-region dimension")))
+    if len(spec.regions) > 1:
+        standby_names = {
+            r: {strip_region(n) for n in fetch_fsx_windows_names(session, r)}
+            for r in spec.regions[1:]
+        }
+        out.cross_region = evaluate_fsx_crossregion(raw["filesystems"], standby_names, primary)
+        if raw["filesystems"]:
+            out.notes_cross_region.append(ServiceNote(SERVICE, (
+                "FSx has no native cross-region replication (AWS Backup copies are backups, "
+                "not standby), so cross-region scoring uses the Name-tag matching heuristic")))
     return out
 ```
 
@@ -2773,7 +2872,7 @@ git commit -m "feat: CLI entry point with end-to-end wiring test"
 | §3 authentication / profile matching | Task 6, Task 14 (inaccessible), Task 17 (CLI resolution) |
 | §4 two-level aggregation | Task 3 |
 | §5.1–5.6 multi-AZ criteria | Tasks 7–12 |
-| §6 cross-region criteria + name matching | Task 4 (naming), Tasks 7–10, 12, 12b (evaluators), Task 13 (standby fetches) |
+| §6 cross-region criteria + name matching | Task 4 (naming), Tasks 7–12b (evaluators, incl. FSx Name-tag matching in Task 11), Task 13 (standby fetches) |
 | §7 exemption tags | Task 2, exercised in every evaluator test |
 | §8 N/A semantics / fault tolerance | Task 14 |
 | §9 JSON + HTML output | Tasks 15–16 |

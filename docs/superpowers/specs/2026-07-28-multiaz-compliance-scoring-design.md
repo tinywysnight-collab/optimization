@@ -108,15 +108,16 @@ For each dimension (Multi-AZ, Cross-Region) independently:
 | ASG | **Name-matching heuristic**: same name after region-stripping exists in a standby region | match → 20 |
 | OpenSearch | **Name-matching heuristic**: same domain name after region-stripping exists in a standby region | match → 20 |
 | ELB (ALB/NLB/Classic) | **Name-matching heuristic**: same load balancer name after region-stripping exists in a standby region | match → 20 |
+| FSx for Windows | **Name-matching heuristic**: same `Name` tag after region-stripping exists on a Windows file system in a standby region | match → 20 |
 
 - **ELB participates in the cross-region dimension only**: its multi-AZ posture is not scored in v1 (see §12). Both ELBv2 (ALB/NLB) and Classic ELB are covered; the match value is the load balancer name.
-- **FSx for Windows is not scored** (no native cross-region replication; AWS Backup copies are backups, not standby; DataSync sync is invisible from the FSx API). Noted in the report.
+- **FSx for Windows** has no native cross-region replication (AWS Backup copies are backups, not standby; DataSync sync is invisible from the FSx API), so it is scored with the name-matching heuristic over the **`Name` tag** (file system ids are random, so the tag is the only usable match value). A Windows file system **without a `Name` tag scores 0** with a reason explaining there is no name to match on — N/A would let untagged resources escape scoring. Other FSx types remain N/A.
 - Native-relation detection: a standby in *any* other region counts; if that region is not in the input `regions` list, the reason says so.
 - Name-matching scans only the standby regions declared in the input.
 
-### Name-matching rule (shared by ASG, OpenSearch, and ELB)
+### Name-matching rule (shared by ASG, OpenSearch, ELB, and FSx for Windows)
 
-1. Pick the match value: for ASGs prefer the `eks:nodegroup-name` tag value (EKS managed node group ASG names carry random suffixes; comparing raw names yields false negatives), fall back to the ASG name when the tag is absent; for OpenSearch use the domain name; for ELB use the load balancer name.
+1. Pick the match value: for ASGs prefer the `eks:nodegroup-name` tag value (EKS managed node group ASG names carry random suffixes; comparing raw names yields false negatives), fall back to the ASG name when the tag is absent; for OpenSearch use the domain name; for ELB use the load balancer name; for FSx for Windows use the `Name` tag.
 2. **Strip region substrings**: delete substrings matching the AWS region pattern (regex `[a-z]{2}-[a-z]+-\d`, e.g. `ap-south-1`), then collapse leftover consecutive separators (`--`, `__`, etc.) into one.
 3. **Exact match** after stripping; no fuzzy rules. A name match counts as multi-region deployment; **node counts and configuration are not compared**.
 4. The reason must state the heuristic nature, e.g. "name-matching heuristic: after region-stripping, matches ASG `myapp-nodes` in eu-west-1". For OpenSearch, if an ACTIVE cross-region connection is also detected (`DescribeOutboundConnections`), it is recorded in the reason as supporting evidence, but the verdict is based on the name match.
