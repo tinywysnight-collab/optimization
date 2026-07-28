@@ -7,7 +7,7 @@ from typing import Any
 
 from .aggregation import finalize_dimension
 from .models import AccountResult, AccountSpec, ServiceNote
-from .scanners import asg, efs, eks, elasticache, elb, fsx, opensearch, rds
+from .scanners import asg, efs, eks, elasticache, elb, fsx, msk, opensearch, rds
 
 # Builds a boto3-compatible session from a profile name.
 SessionFactory = Callable[..., Any]
@@ -21,6 +21,7 @@ SCANNERS = {
     "elasticache": elasticache.scan,
     "elb": elb.scan,
     "eks": eks.scan,
+    "msk": msk.scan,
 }
 
 

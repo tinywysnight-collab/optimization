@@ -166,6 +166,29 @@ def fetch_elb_names(session: Any, region: str) -> list[str]:
     return names
 
 
+def fetch_msk(session: Any, region: str) -> dict[str, Any]:
+    """MSK clusters as [{'name','arn','type','subnets','zone_ids','tags'}]."""
+    c = session.client("kafka", region_name=region, config=_CLIENT_CONFIG)
+    clusters: list[AwsDict] = []
+    for raw in _paginate(c, "list_clusters_v2", "ClusterInfoList"):
+        broker = raw.get("Provisioned", {}).get("BrokerNodeGroupInfo", {})
+        clusters.append({
+            "name": raw.get("ClusterName", ""),
+            "arn": raw.get("ClusterArn", ""),
+            "type": raw.get("ClusterType", ""),
+            "subnets": broker.get("ClientSubnets", []),
+            "zone_ids": broker.get("ZoneIds", []),
+            # Kafka tags arrive as a plain {key: value} map, not a Key/Value list.
+            "tags": raw.get("Tags") or {},
+        })
+    return {"clusters": clusters}
+
+
+def fetch_msk_cluster_names(session: Any, region: str) -> list[str]:
+    c = session.client("kafka", region_name=region, config=_CLIENT_CONFIG)
+    return [r.get("ClusterName", "") for r in _paginate(c, "list_clusters_v2", "ClusterInfoList")]
+
+
 def fetch_elasticache(session: Any, region: str) -> dict[str, Any]:
     c = session.client("elasticache", region_name=region, config=_CLIENT_CONFIG)
     groups = _paginate(c, "describe_replication_groups", "ReplicationGroups")

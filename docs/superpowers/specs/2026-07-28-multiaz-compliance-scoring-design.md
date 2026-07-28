@@ -139,6 +139,27 @@ The split the deployment makes is who holds the master role; the score follows i
 - **Application Load Balancer**: recorded as **N/A**. AWS enforces at least two AZ subnets when an ALB is created, so there is no configuration lever to assess — scoring it would add a permanently-full-marks dimension that dilutes real failures elsewhere. Same principle as FSx Lustre in §5.5.
 - **Classic ELB and Gateway Load Balancer**: recorded as **N/A**, listed in the report with a note that scoring covers NLB only.
 
+### 5.8 MSK (max 20, provisioned clusters only)
+
+The same "who holds the coordination role" split as OpenSearch §5.4, with the same
+answer as its dedicated-master arm: ZooKeeper / KRaft controllers are AWS-managed
+(provisioned free with every cluster, no user lever), so only the **broker AZ
+spread** is scored. MSK requires every client subnet to sit in a distinct AZ, so
+the subnet count is the AZ count (`ZoneIds` wins when present):
+
+- 3 AZs → **20**;
+- 2 AZs → **10** — replicas of a replication-factor-3 topic split 2+1 across two
+  AZs; losing the majority AZ leaves one in-sync replica, and the standard
+  `min.insync.replicas=2` then blocks producers. MSK recommends three AZs and
+  Express brokers require them;
+- fewer → **0** (defensive; MSK does not normally allow single-subnet clusters).
+- **MSK Serverless**: recorded **N/A** in both dimensions (AWS-managed, multi-AZ
+  by design) — same treatment as ElastiCache Serverless in §5.6.
+- **Known blind spot, stated in every reason**: topic `replication.factor` and
+  `min.insync.replicas` live in the Kafka data plane (Admin API) and are invisible
+  to the control plane — the same class of blind spot as OpenSearch index replica
+  counts. A 3-AZ cluster whose topics have RF=1 still scores 20.
+
 ## 6. Cross-Region dimension criteria (max 20, independent of the Multi-AZ score)
 
 - Scored only when the input has ≥2 `regions`; **single-region accounts are N/A** (not 0).
@@ -155,6 +176,7 @@ The split the deployment makes is who holds the master role; the score follows i
 | EKS | **Name-matching heuristic**: same cluster name after region-stripping exists in a standby region (via `ListClusters`) | match → 20 |
 | OpenSearch | **Name-matching heuristic**: same domain name after region-stripping exists in a standby region | match → 20 |
 | ELB (ALB/NLB/Classic) | **Name-matching heuristic**: same load balancer name after region-stripping exists in a standby region | match → 20 |
+| MSK (provisioned) | **Name-matching heuristic**: same cluster name after region-stripping exists in a standby region (this estate does not use MSK Replicator; if it ever does, `ListReplicators` offers a native upgrade path) | match → 20 |
 | FSx for Windows | **Name-matching heuristic**: same `Name` tag after region-stripping exists on a Windows file system in a standby region | match → 20 |
 
 - **EKS is judged at the cluster level, directly through the EKS API**, and forms its own service dimension. Node-group ASGs are *excluded* from the ASG cross-region scoring (they remain scored in the Multi-AZ dimension) for three reasons: managed node-group ASG names are AWS-generated random strings (`eks-40bbb26b-…`) that can never match across regions; node-group names are commonly generic (`default`, `spot`, `system`) and would produce false positives against unrelated clusters in a standby region; and a cluster with four node groups would otherwise carry four times the weight of a single-node-group cluster. Cluster-level matching also covers Fargate-only clusters, which have no ASG at all. Exemption tags are read from the cluster's own tags.
@@ -163,7 +185,7 @@ The split the deployment makes is who holds the master role; the score follows i
 - Native-relation detection: a standby in *any* other region counts; if that region is not in the input `regions` list, the reason says so.
 - Name-matching scans only the standby regions declared in the input.
 
-### Name-matching rule (shared by ASG, EKS, OpenSearch, ELB, and FSx for Windows)
+### Name-matching rule (shared by ASG, EKS, OpenSearch, ELB, MSK, and FSx for Windows)
 
 1. Pick the match value: ASG → the ASG name (EKS node-group ASGs, identified by the `eks:cluster-name` tag, are skipped entirely); EKS → the cluster name; OpenSearch → the domain name; ELB → the load balancer name; FSx for Windows → the `Name` tag.
 2. **Strip region substrings**: delete substrings matching the AWS region pattern (regex `[a-z]{2}-[a-z]+-\d`, e.g. `ap-south-1`), then collapse leftover consecutive separators (`--`, `__`, etc.) into one.

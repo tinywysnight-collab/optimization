@@ -89,5 +89,5 @@ def test_scan_all_returns_result_per_spec(monkeypatch):
     assert len(results) == 2
 
 
-def test_scanner_registry_covers_all_eight_services():
-    assert set(SCANNERS) == {"rds", "efs", "asg", "opensearch", "fsx", "elasticache", "elb", "eks"}
+def test_scanner_registry_covers_all_nine_services():
+    assert set(SCANNERS) == {"rds", "efs", "asg", "opensearch", "fsx", "elasticache", "elb", "eks", "msk"}
