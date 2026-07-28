@@ -1,4 +1,7 @@
-from hascore.scanners.aws_fetch import _collect_next_token, _paginate, fetch_asg
+import pytest
+from botocore.exceptions import ClientError
+
+from hascore.scanners.aws_fetch import _collect_next_token, _paginate, fetch_asg, fetch_efs
 
 
 class FakePaginator:
@@ -68,3 +71,54 @@ def test_collect_next_token_single_page():
 
     assert result == [1]
     assert len(calls) == 1
+
+
+class _ReplicationNotFoundPaginator:
+    def paginate(self, **kwargs):
+        raise ClientError(
+            {"Error": {"Code": "ReplicationNotFound", "Message": "no replication configured"}},
+            "DescribeReplicationConfigurations")
+
+
+class EfsFakeClient:
+    """describe_file_systems/describe_mount_targets succeed; describe_replication_configurations
+    raises ReplicationNotFound, exactly as real EFS does when the region has zero
+    replication configs and no FileSystemId filter was given."""
+
+    def __init__(self, filesystems):
+        self._filesystems = filesystems
+
+    def get_paginator(self, op):
+        if op == "describe_replication_configurations":
+            return _ReplicationNotFoundPaginator()
+        if op == "describe_file_systems":
+            return FakePaginator([{"FileSystems": self._filesystems}])
+        if op == "describe_mount_targets":
+            return FakePaginator([{"MountTargets": []}])
+        raise AssertionError(f"unexpected operation: {op}")
+
+
+def test_fetch_efs_treats_replication_not_found_as_no_replications():
+    session_client = EfsFakeClient([{"FileSystemId": "fs-1"}])
+    result = fetch_efs(type("S", (), {"client": lambda self, *a, **k: session_client})(), "us-east-1")
+    assert result["replications"] == []
+    assert result["filesystems"] == [{"FileSystemId": "fs-1"}]
+
+
+class _OtherErrorPaginator:
+    def paginate(self, **kwargs):
+        raise ClientError(
+            {"Error": {"Code": "AccessDeniedException", "Message": "not authorized"}},
+            "DescribeReplicationConfigurations")
+
+
+def test_fetch_efs_still_raises_on_other_client_errors():
+    class OtherErrorFakeClient(EfsFakeClient):
+        def get_paginator(self, op):
+            if op == "describe_replication_configurations":
+                return _OtherErrorPaginator()
+            return super().get_paginator(op)
+
+    session_client = OtherErrorFakeClient([{"FileSystemId": "fs-1"}])
+    with pytest.raises(ClientError, match="AccessDeniedException"):
+        fetch_efs(type("S", (), {"client": lambda self, *a, **k: session_client})(), "us-east-1")

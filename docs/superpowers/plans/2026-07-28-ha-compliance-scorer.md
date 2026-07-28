@@ -2234,14 +2234,23 @@ def fetch_rds(session: Any, region: str) -> dict[str, Any]:
 
 
 def fetch_efs(session: Any, region: str) -> dict[str, Any]:
-    c = session.client("efs", region_name=region)
+    c = session.client("efs", region_name=region, config=_CLIENT_CONFIG)
     filesystems = _paginate(c, "describe_file_systems", "FileSystems")
     mount_targets_by_fs = {
         fs["FileSystemId"]: _paginate(c, "describe_mount_targets", "MountTargets",
                                       FileSystemId=fs["FileSystemId"])
         for fs in filesystems
     }
-    replications = _paginate(c, "describe_replication_configurations", "Replications")
+    try:
+        replications = _paginate(c, "describe_replication_configurations", "Replications")
+    except ClientError as exc:
+        # Unlike most describe/list APIs, EFS raises ReplicationNotFound instead
+        # of returning an empty list when the region has zero replication configs
+        # and no FileSystemId filter was given. That's "no replications", not a
+        # scan failure — treat it as one to avoid marking the whole EFS service N/A.
+        if exc.response.get("Error", {}).get("Code") != "ReplicationNotFound":
+            raise
+        replications = []
     return {"filesystems": filesystems, "mount_targets_by_fs": mount_targets_by_fs,
             "replications": replications}
 
@@ -3263,6 +3272,7 @@ first; the code is authoritative where it now differs from a task's code block.
 | `html_report.py` | `select_autoescape(["html"])` matches on filename suffix and the template ends in `.j2`, so autoescaping was off — a stored-XSS vector via reasons, tags, and resource names. | `autoescape=True` unconditionally. |
 | `aws_fetch.py` / `elasticache.py` | ElastiCache Serverless caches were fetched by neither `describe_replication_groups` nor `describe_cache_clusters`, so spec §5.6's "record other forms as N/A and list them" was silently unmet — a Serverless-only account produced no `elasticache` rows at all. | `describe_serverless_caches` added to the fetch layer; both evaluators emit one N/A row per serverless cache. |
 | `aws_fetch.py` | Spec §10 names boto3 adaptive retry as the throttling defence, but every client was built with botocore's default legacy retry mode. At a few hundred accounts a throttled call became a failed service (N/A) instead of a retry. | Module-level `Config(retries={"max_attempts": 10, "mode": "adaptive"})` passed to all 13 client constructions. |
+| `aws_fetch.py` | Unlike most EFS `describe_*` operations, `describe_replication_configurations` called with no `FileSystemId` (i.e. "list everything") raises `ReplicationNotFound` — rather than returning an empty list — when the region has zero replication configs. Any account with an EFS file system that has no cross-region replication configured had its entire `efs` service scan fail and both dimensions recorded N/A instead of scored. | `fetch_efs` catches `ClientError`, treats `ReplicationNotFound` as an empty replication list, and re-raises every other error code unchanged. |
 | `pyproject.toml` | setuptools omits non-Python files from the wheel unless declared, so `template.html.j2` was missing from any installed copy and rendering the HTML report raised `TemplateNotFound`. The source-tree test suite cannot detect this — only a production build can. | `[tool.setuptools.package-data]` declares `report/*.j2`; a test guards the declaration, and the wheel was verified end-to-end in a clean venv. |
 
 ## Verification performed against the finished branch

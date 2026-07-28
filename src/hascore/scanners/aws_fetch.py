@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from botocore.config import Config
+from botocore.exceptions import ClientError
 
 from ..models import AwsDict
 from ..tags import tags_to_dict
@@ -50,7 +51,16 @@ def fetch_efs(session: Any, region: str) -> dict[str, Any]:
                                       FileSystemId=fs["FileSystemId"])
         for fs in filesystems
     }
-    replications = _paginate(c, "describe_replication_configurations", "Replications")
+    try:
+        replications = _paginate(c, "describe_replication_configurations", "Replications")
+    except ClientError as exc:
+        # Unlike most describe/list APIs, EFS raises ReplicationNotFound instead
+        # of returning an empty list when the region has zero replication configs
+        # and no FileSystemId filter was given. That's "no replications", not a
+        # scan failure — treat it as one to avoid marking the whole EFS service N/A.
+        if exc.response.get("Error", {}).get("Code") != "ReplicationNotFound":
+            raise
+        replications = []
     return {"filesystems": filesystems, "mount_targets_by_fs": mount_targets_by_fs,
             "replications": replications}
 
