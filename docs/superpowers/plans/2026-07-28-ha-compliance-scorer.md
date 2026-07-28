@@ -3263,3 +3263,11 @@ first; the code is authoritative where it now differs from a task's code block.
 | `html_report.py` | `select_autoescape(["html"])` matches on filename suffix and the template ends in `.j2`, so autoescaping was off — a stored-XSS vector via reasons, tags, and resource names. | `autoescape=True` unconditionally. |
 | `aws_fetch.py` / `elasticache.py` | ElastiCache Serverless caches were fetched by neither `describe_replication_groups` nor `describe_cache_clusters`, so spec §5.6's "record other forms as N/A and list them" was silently unmet — a Serverless-only account produced no `elasticache` rows at all. | `describe_serverless_caches` added to the fetch layer; both evaluators emit one N/A row per serverless cache. |
 | `aws_fetch.py` | Spec §10 names boto3 adaptive retry as the throttling defence, but every client was built with botocore's default legacy retry mode. At a few hundred accounts a throttled call became a failed service (N/A) instead of a retry. | Module-level `Config(retries={"max_attempts": 10, "mode": "adaptive"})` passed to all 13 client constructions. |
+| `pyproject.toml` | setuptools omits non-Python files from the wheel unless declared, so `template.html.j2` was missing from any installed copy and rendering the HTML report raised `TemplateNotFound`. The source-tree test suite cannot detect this — only a production build can. | `[tool.setuptools.package-data]` declares `report/*.j2`; a test guards the declaration, and the wheel was verified end-to-end in a clean venv. |
+
+## Verification performed against the finished branch
+
+- `uv run pytest` — 112 passed; `uv run ruff check src/ tests/` and `uv run mypy src/` clean.
+- `uv build` — sdist and wheel build; wheel contents inspected, and the CLI was run from a wheel installed into a clean virtualenv, producing both reports.
+- Coverage (measured with an ephemeral `pytest-cov`, not wired into the project): 83% overall. The shortfall is concentrated in `aws_fetch.py` (33%) and the per-service `scan()` glue, both of which this plan deliberately leaves to end-to-end coverage rather than unit tests. Core scoring logic sits at 84–100%, meeting the ≥80% target in `AGENTS.md`.
+- No AWS account has ever been contacted: every test and manual run uses fabricated responses and injected fake sessions.
