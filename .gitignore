@@ -6,3 +6,4 @@ out/
 *.egg-info/
 uv.lock
 dist/
+.coverage
