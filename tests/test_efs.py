@@ -53,3 +53,12 @@ def test_same_region_replication_does_not_count():
     reps = [{"SourceFileSystemId": "fs-1", "Destinations": [{"Region": "us-east-1"}]}]
     scores = by_id(evaluate_efs_crossregion([fs("fs-1")], reps, R, ["us-east-1", "eu-west-1"]))
     assert scores["fs-1"].score == 0.0
+
+
+def test_mixed_az_id_and_name_do_not_double_count():
+    """One mount target reporting the zone ID and another the zone name of the
+    same physical AZ must not count as two AZs."""
+    targets = [{"AvailabilityZoneId": "use1-az1"},
+               {"AvailabilityZoneName": "us-east-1a"}]
+    scores = by_id(evaluate_efs_multiaz([fs("fs-1")], {"fs-1": targets}, R))
+    assert scores["fs-1"].score == 10.0  # storage 10 + mount targets 0

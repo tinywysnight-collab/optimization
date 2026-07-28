@@ -18,8 +18,10 @@ def evaluate_efs_multiaz(filesystems: list[AwsDict], mount_targets_by_fs: dict[s
         tags = tags_to_dict(fs.get("Tags"))
         one_zone = bool(fs.get("AvailabilityZoneId"))
         storage_pts = 0 if one_zone else 10
-        mt_azs = {mt.get("AvailabilityZoneId") or mt.get("AvailabilityZoneName")
-                  for mt in mount_targets_by_fs.get(fsid, [])} - {None}
+        mts = mount_targets_by_fs.get(fsid, [])
+        mt_azs = {mt["AvailabilityZoneId"] for mt in mts if mt.get("AvailabilityZoneId")}
+        if not mt_azs:
+            mt_azs = {mt.get("AvailabilityZoneName") for mt in mts} - {None}
         mt_pts = 10 if len(mt_azs) >= 2 else 0
         storage_word = "One Zone" if one_zone else "Regional"
         reason = (f"{storage_word} storage class ({storage_pts}/10); "
