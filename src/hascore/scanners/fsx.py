@@ -1,9 +1,12 @@
 """FSx evaluators (spec §5.5, §6): Windows type only; other types recorded N/A."""
 from __future__ import annotations
 
-from ..models import AwsDict, ResourceScore
+from typing import Any
+
+from ..models import AccountSpec, AwsDict, ResourceScore, ServiceNote, ServiceScan
 from ..naming import strip_region
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption, tags_to_dict
+from .aws_fetch import fetch_fsx, fetch_fsx_windows_names
 
 SERVICE = "fsx"
 NAME_TAG = "Name"
@@ -68,3 +71,21 @@ def evaluate_fsx_crossregion(filesystems: list[AwsDict], standby_names: dict[str
         score, exempted, suffix = apply_exemption(score, tags, CROSSREGION_TAG)
         results.append(ResourceScore(SERVICE, fsid, primary_region, score, reason + suffix, exempted))
     return results
+
+
+def scan(session: Any, spec: AccountSpec) -> ServiceScan:
+    primary = spec.regions[0]
+    raw = fetch_fsx(session, primary)
+    out = ServiceScan()
+    out.multi_az = evaluate_fsx_multiaz(raw["filesystems"], primary)
+    if len(spec.regions) > 1:
+        standby_names = {
+            r: {strip_region(n) for n in fetch_fsx_windows_names(session, r)}
+            for r in spec.regions[1:]
+        }
+        out.cross_region = evaluate_fsx_crossregion(raw["filesystems"], standby_names, primary)
+        if raw["filesystems"]:
+            out.notes_cross_region.append(ServiceNote(SERVICE, (
+                "FSx has no native cross-region replication (AWS Backup copies are backups, "
+                "not standby), so cross-region scoring uses the Name-tag matching heuristic")))
+    return out

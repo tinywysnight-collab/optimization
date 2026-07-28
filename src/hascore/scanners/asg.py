@@ -1,9 +1,12 @@
 """ASG evaluators (spec §5.3, §6): config-based multi-AZ; name-matching cross-region."""
 from __future__ import annotations
 
-from ..models import AwsDict, ResourceScore
+from typing import Any
+
+from ..models import AccountSpec, AwsDict, ResourceScore, ServiceScan
 from ..naming import strip_region
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption, tags_to_dict
+from .aws_fetch import fetch_asg
 
 SERVICE = "asg"
 EKS_CLUSTER_TAG = "eks:cluster-name"
@@ -55,3 +58,18 @@ def evaluate_asg_crossregion(groups: list[AwsDict], standby_names: dict[str, set
         score, exempted, suffix = apply_exemption(score, tags, CROSSREGION_TAG)
         results.append(ResourceScore(SERVICE, name, primary_region, score, reason + suffix, exempted))
     return results
+
+
+def scan(session: Any, spec: AccountSpec) -> ServiceScan:
+    primary = spec.regions[0]
+    groups = fetch_asg(session, primary)["groups"]
+    out = ServiceScan()
+    out.multi_az = evaluate_asg_multiaz(groups, primary)
+    if len(spec.regions) > 1:
+        standby_names = {
+            r: {strip_region(g["AutoScalingGroupName"])
+                for g in fetch_asg(session, r)["groups"] if not is_eks_asg(g)}
+            for r in spec.regions[1:]
+        }
+        out.cross_region = evaluate_asg_crossregion(groups, standby_names, primary)
+    return out

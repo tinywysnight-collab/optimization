@@ -1,9 +1,12 @@
 """OpenSearch evaluators (spec §5.4, §6): data plane 10 + control plane 10; name-matching cross-region."""
 from __future__ import annotations
 
-from ..models import AwsDict, ResourceScore
+from typing import Any
+
+from ..models import AccountSpec, AwsDict, ResourceScore, ServiceScan
 from ..naming import strip_region
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption
+from .aws_fetch import fetch_opensearch, fetch_opensearch_domain_names
 
 SERVICE = "opensearch"
 
@@ -68,3 +71,18 @@ def evaluate_opensearch_crossregion(domains: list[AwsDict], tags_by_arn: dict[st
         score, exempted, suffix = apply_exemption(score, tags, CROSSREGION_TAG)
         results.append(ResourceScore(SERVICE, name, primary_region, score, reason + suffix, exempted))
     return results
+
+
+def scan(session: Any, spec: AccountSpec) -> ServiceScan:
+    primary = spec.regions[0]
+    raw = fetch_opensearch(session, primary)
+    out = ServiceScan()
+    out.multi_az = evaluate_opensearch_multiaz(raw["domains"], raw["tags_by_arn"], primary)
+    if len(spec.regions) > 1:
+        standby_domains = {
+            r: {strip_region(n) for n in fetch_opensearch_domain_names(session, r)}
+            for r in spec.regions[1:]
+        }
+        out.cross_region = evaluate_opensearch_crossregion(
+            raw["domains"], raw["tags_by_arn"], standby_domains, raw["connections"], primary)
+    return out

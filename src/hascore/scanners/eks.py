@@ -6,9 +6,12 @@ matching must happen at the cluster level; this also covers Fargate-only cluster
 """
 from __future__ import annotations
 
-from ..models import AwsDict, ResourceScore
+from typing import Any
+
+from ..models import AccountSpec, AwsDict, ResourceScore, ServiceScan
 from ..naming import strip_region
 from ..tags import CROSSREGION_TAG, apply_exemption
+from .aws_fetch import fetch_eks, fetch_eks_cluster_names
 
 SERVICE = "eks"
 
@@ -32,3 +35,16 @@ def evaluate_eks_crossregion(clusters: list[AwsDict], standby_names: dict[str, s
         score, exempted, suffix = apply_exemption(score, c.get("tags", {}), CROSSREGION_TAG)
         results.append(ResourceScore(SERVICE, name, primary_region, score, reason + suffix, exempted))
     return results
+
+
+def scan(session: Any, spec: AccountSpec) -> ServiceScan:
+    primary = spec.regions[0]
+    out = ServiceScan()
+    if len(spec.regions) > 1:  # EKS is scored in the cross-region dimension only (spec §6)
+        clusters = fetch_eks(session, primary)["clusters"]
+        standby_names = {
+            r: {strip_region(n) for n in fetch_eks_cluster_names(session, r)}
+            for r in spec.regions[1:]
+        }
+        out.cross_region = evaluate_eks_crossregion(clusters, standby_names, primary)
+    return out

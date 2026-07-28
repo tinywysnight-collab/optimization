@@ -6,9 +6,12 @@ Load balancers are passed as normalized dicts:
 """
 from __future__ import annotations
 
-from ..models import AwsDict, ResourceScore
+from typing import Any
+
+from ..models import AccountSpec, AwsDict, ResourceScore, ServiceScan
 from ..naming import strip_region
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption
+from .aws_fetch import fetch_elb, fetch_elb_names
 
 SERVICE = "elb"
 _SCORED_MULTIAZ_TYPE = "network"
@@ -59,3 +62,17 @@ def evaluate_elb_crossregion(load_balancers: list[AwsDict], standby_names: dict[
         score, exempted, suffix = apply_exemption(score, lb.get("tags", {}), CROSSREGION_TAG)
         results.append(ResourceScore(SERVICE, name, primary_region, score, reason + suffix, exempted))
     return results
+
+
+def scan(session: Any, spec: AccountSpec) -> ServiceScan:
+    primary = spec.regions[0]
+    raw = fetch_elb(session, primary)
+    out = ServiceScan()
+    out.multi_az = evaluate_elb_multiaz(raw["load_balancers"], primary)
+    if len(spec.regions) > 1:
+        standby_names = {
+            r: {strip_region(n) for n in fetch_elb_names(session, r)}
+            for r in spec.regions[1:]
+        }
+        out.cross_region = evaluate_elb_crossregion(raw["load_balancers"], standby_names, primary)
+    return out

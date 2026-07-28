@@ -1,8 +1,11 @@
 """RDS evaluators (spec §5.1, §6). Pure functions over describe_* output."""
 from __future__ import annotations
 
-from ..models import AwsDict, ResourceScore
+from typing import Any
+
+from ..models import AccountSpec, AwsDict, ResourceScore, ServiceScan
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption, tags_to_dict
+from .aws_fetch import fetch_rds
 
 SERVICE = "rds"
 
@@ -106,3 +109,14 @@ def evaluate_rds_crossregion(instances: list[AwsDict], clusters: list[AwsDict], 
         results.append(ResourceScore(SERVICE, cid, primary_region, score, reason + suffix, exempted))
 
     return results
+
+
+def scan(session: Any, spec: AccountSpec) -> ServiceScan:
+    primary = spec.regions[0]
+    raw = fetch_rds(session, primary)
+    out = ServiceScan()
+    out.multi_az = evaluate_rds_multiaz(raw["instances"], raw["clusters"], primary)
+    if len(spec.regions) > 1:
+        out.cross_region = evaluate_rds_crossregion(
+            raw["instances"], raw["clusters"], raw["global_clusters"], primary, spec.regions)
+    return out

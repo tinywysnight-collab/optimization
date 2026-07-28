@@ -1,8 +1,11 @@
 """ElastiCache evaluators (spec §5.6, §6): Redis/Valkey only; others N/A."""
 from __future__ import annotations
 
-from ..models import AwsDict, ResourceScore
+from typing import Any
+
+from ..models import AccountSpec, AwsDict, ResourceScore, ServiceScan
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption
+from .aws_fetch import fetch_elasticache
 
 SERVICE = "elasticache"
 _SCORED_ENGINES = ("redis", "valkey")
@@ -64,3 +67,15 @@ def evaluate_elasticache_crossregion(replication_groups: list[AwsDict], cache_cl
         reason = "standalone single node, not part of any Global Datastore" + suffix
         results.append(ResourceScore(SERVICE, ccid, primary_region, score, reason, exempted))
     return results
+
+
+def scan(session: Any, spec: AccountSpec) -> ServiceScan:
+    primary = spec.regions[0]
+    raw = fetch_elasticache(session, primary)
+    out = ServiceScan()
+    out.multi_az = evaluate_elasticache_multiaz(
+        raw["replication_groups"], raw["cache_clusters"], raw["tags_by_arn"], primary)
+    if len(spec.regions) > 1:
+        out.cross_region = evaluate_elasticache_crossregion(
+            raw["replication_groups"], raw["cache_clusters"], raw["tags_by_arn"], primary)
+    return out
