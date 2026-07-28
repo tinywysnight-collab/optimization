@@ -1,7 +1,7 @@
 # AWS Resilience Compliance Scoring Tool — Design
 
 Date: 2026-07-28
-Status: pending user approval
+Status: implemented (v1) — this document is kept in step with the code; scoring-rule changes land here in the same commit
 
 ## 0. Prime directive — read-only, without exception
 
@@ -51,6 +51,7 @@ The caller passes the account list in as a payload (a mapping, shown here as JSO
 }
 ```
 
+- The payload must be a mapping whose `accounts` is an **array** — a malformed `{"accounts": {}}` raises `InputError` rather than silently scanning zero accounts.
 - `regions[0]` is the **primary region**: Multi-AZ scoring scans the primary region only.
 - `regions[1:]` are standby regions: used only by the Cross-Region dimension's name-matching scans.
 - `pattern_id` and `application` are **free-schema, pass-through only**: the program does not validate or interpret them; they are copied verbatim into the output. The scoring rule engine keeps a clean interface to account metadata so pattern rules can influence scoring later (out of scope for v1).
@@ -86,7 +87,7 @@ For each dimension (Multi-AZ, Cross-Region) independently:
 ### 5.2 EFS (two items, 10 points each)
 
 - **Storage redundancy (10)**: Regional (`AvailabilityZoneId` empty) → 10; One Zone → 0.
-- **Mount target coverage (10)**: mount targets spread across ≥2 AZs → 10; otherwise 0.
+- **Mount target coverage (10)**: mount targets spread across ≥2 AZs → 10; otherwise 0. AZ identity is taken from `AvailabilityZoneId` for the whole set, falling back to `AvailabilityZoneName` only when no mount target carries an ID — mixing the two field kinds would count one physical AZ twice and produce a false pass.
 - A One Zone file system can only have 1 mount target, so its total is naturally 0. The reason explains both items separately.
 
 ### 5.3 ASG (max 20)
@@ -131,7 +132,7 @@ The split the deployment makes is who holds the master role; the score follows i
 
 - **Redis/Valkey replication group**: `MultiAZ == enabled` → 20; otherwise 0.
 - **Standalone Redis node (no replication group)**: 0, reason "single node, no replica".
-- **Memcached / Serverless / other forms**: recorded as **N/A**, listed in the report with a note that they are excluded from scoring.
+- **Memcached / Serverless / other forms**: recorded as **N/A**, listed in the report with a note that they are excluded from scoring. Engine names are matched case-insensitively, so a `"Redis"` never silently falls into the N/A branch.
 
 ### 5.7 ELB (max 20, NLB only)
 
@@ -170,7 +171,7 @@ the subnet count is the AZ count (`ZoneIds` wins when present):
 | Service | Detection | Full score condition |
 |---|---|---|
 | RDS | Native API: cross-region read replica (replica ARN in another region) / Aurora Global Database | exists → 20 |
-| EFS | Native API: replication configuration targeting another region | exists → 20 |
+| EFS | Native API: replication configuration targeting another region (`DescribeReplicationConfigurations` raises `ReplicationNotFound` — rather than returning an empty list — when the region has no replication configs at all; that is "no replications", never a scan failure) | exists → 20 |
 | ElastiCache Redis | Native API: Global Datastore membership | exists → 20 |
 | ASG (non-EKS only) | **Name-matching heuristic**: same name after region-stripping exists in a standby region | match → 20 |
 | EKS | **Name-matching heuristic**: same cluster name after region-stripping exists in a standby region (via `ListClusters`) | match → 20 |
@@ -188,7 +189,7 @@ the subnet count is the AZ count (`ZoneIds` wins when present):
 ### Name-matching rule (shared by ASG, EKS, OpenSearch, ELB, MSK, and FSx for Windows)
 
 1. Pick the match value: ASG → the ASG name (EKS node-group ASGs, identified by the `eks:cluster-name` tag, are skipped entirely); EKS → the cluster name; OpenSearch → the domain name; ELB → the load balancer name; FSx for Windows → the `Name` tag.
-2. **Strip region substrings**: delete substrings matching the AWS region pattern (regex `[a-z]{2}-[a-z]+-\d`, e.g. `ap-south-1`), then collapse leftover consecutive separators (`--`, `__`, etc.) into one.
+2. **Strip region substrings**: delete substrings matching the AWS region pattern (regex `(?<![a-z0-9])[a-z]{2}(?:-[a-z]+)?-[a-z]+-\d(?![0-9])` — the optional middle segment covers 4-segment regions such as `us-gov-west-1`; the lookarounds keep token boundaries so `web-tier-2` is never mangled), then collapse leftover consecutive separators (`--`, `__`, etc.) into one. A name that is nothing but a region string falls back to itself rather than stripping to empty.
 3. **Exact match** after stripping; no fuzzy rules. A name match counts as multi-region deployment; **node counts and configuration are not compared**.
 4. The reason must state the heuristic nature, e.g. "name-matching heuristic: after region-stripping, matches ASG `myapp-nodes` in eu-west-1". For OpenSearch, if an ACTIVE cross-region connection is also detected (`DescribeOutboundConnections`), it is recorded in the reason as supporting evidence, but the verdict is based on the name match.
 
@@ -218,7 +219,9 @@ Core principle: **"not scanned" and "scanned and found bad" are never conflated;
 ## 9. Output
 
 - **JSON (source of truth)**: org summary → per account (both scores, inaccessible flag) → per service dimension score → per resource (score, reason, region, exemption flag, pass-through `pattern_id` / `application`).
-- **HTML (human report)**: single self-contained file (no external resources). Structure: org summary table (both scores per account) → account detail (service dimension scores) → resource detail (scores and reasons). Shows `pattern_id` / application details, inaccessible accounts, and the out-of-scope resource list.
+- **HTML (human report)**: single self-contained file (no external resources, no CDN, autoescape unconditionally on — `select_autoescape` would miss the `.j2` suffix and reasons/tags/names are externally influenced). Structure: header → summary tiles → org summary table (both scores per account) → per-account collapsible detail (service dimension scores → resource scores and reasons → notes). Shows `pattern_id` / application details, inaccessible accounts, and the out-of-scope resource list.
+- **Account lookup** is built in: a filter box over account id / pattern / application / region that narrows both the summary table and the detail panels (`/` focuses it, Escape clears), clickable summary rows and `#acct-<id>` deep links that open the matching detail, and a per-row jump link — finding one account among hundreds must not require scrolling.
+- **Presentation rules**: brand colour dresses the chrome only; score cells use the reserved status palette as a border beside a visible number (score bands: ≥15 good, ≥10 partial, else bad; `None` renders as N/A, never as 0), so colour never carries meaning alone.
 - Run mode: **a single callable entry point**, `score(payload, output_format)`, returning the result rather than writing files:
   - `output_format="json"` returns the report as a dict; the caller decides whether to serialize it.
   - `output_format="html"` returns a self-contained HTML document as a string.
