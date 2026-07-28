@@ -4,8 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from botocore.config import Config
+
 from ..models import AwsDict
 from ..tags import tags_to_dict
+
+# Spec §10: a few hundred accounts scanned concurrently will hit API throttling;
+# adaptive mode backs off and retries instead of surfacing a failed service as N/A.
+_CLIENT_CONFIG = Config(retries={"max_attempts": 10, "mode": "adaptive"})
 
 
 def _paginate(client: Any, op: str, result_key: str, **kwargs: Any) -> list[Any]:
@@ -28,7 +34,7 @@ def _collect_next_token(call: Any, result_key: str, **kwargs: Any) -> list[Any]:
 
 
 def fetch_rds(session: Any, region: str) -> dict[str, Any]:
-    c = session.client("rds", region_name=region)
+    c = session.client("rds", region_name=region, config=_CLIENT_CONFIG)
     return {
         "instances": _paginate(c, "describe_db_instances", "DBInstances"),
         "clusters": _paginate(c, "describe_db_clusters", "DBClusters"),
@@ -37,7 +43,7 @@ def fetch_rds(session: Any, region: str) -> dict[str, Any]:
 
 
 def fetch_efs(session: Any, region: str) -> dict[str, Any]:
-    c = session.client("efs", region_name=region)
+    c = session.client("efs", region_name=region, config=_CLIENT_CONFIG)
     filesystems = _paginate(c, "describe_file_systems", "FileSystems")
     mount_targets_by_fs = {
         fs["FileSystemId"]: _paginate(c, "describe_mount_targets", "MountTargets",
@@ -50,12 +56,12 @@ def fetch_efs(session: Any, region: str) -> dict[str, Any]:
 
 
 def fetch_asg(session: Any, region: str) -> dict[str, Any]:
-    c = session.client("autoscaling", region_name=region)
+    c = session.client("autoscaling", region_name=region, config=_CLIENT_CONFIG)
     return {"groups": _paginate(c, "describe_auto_scaling_groups", "AutoScalingGroups")}
 
 
 def fetch_opensearch(session: Any, region: str) -> dict[str, Any]:
-    c = session.client("opensearch", region_name=region)
+    c = session.client("opensearch", region_name=region, config=_CLIENT_CONFIG)
     names = [d["DomainName"] for d in c.list_domain_names().get("DomainNames", [])]
     domains: list[AwsDict] = []
     for i in range(0, len(names), 5):  # DescribeDomains accepts at most 5 names
@@ -71,12 +77,12 @@ def fetch_opensearch(session: Any, region: str) -> dict[str, Any]:
 
 
 def fetch_opensearch_domain_names(session: Any, region: str) -> list[str]:
-    c = session.client("opensearch", region_name=region)
+    c = session.client("opensearch", region_name=region, config=_CLIENT_CONFIG)
     return [d["DomainName"] for d in c.list_domain_names().get("DomainNames", [])]
 
 
 def fetch_fsx(session: Any, region: str) -> dict[str, Any]:
-    c = session.client("fsx", region_name=region)
+    c = session.client("fsx", region_name=region, config=_CLIENT_CONFIG)
     return {"filesystems": _paginate(c, "describe_file_systems", "FileSystems")}
 
 
@@ -93,7 +99,7 @@ def fetch_fsx_windows_names(session: Any, region: str) -> list[str]:
 
 def fetch_eks(session: Any, region: str) -> dict[str, Any]:
     """EKS clusters as [{'name', 'tags'}]; tags come from DescribeCluster."""
-    c = session.client("eks", region_name=region)
+    c = session.client("eks", region_name=region, config=_CLIENT_CONFIG)
     names = _paginate(c, "list_clusters", "clusters")
     clusters = []
     for name in names:
@@ -103,7 +109,7 @@ def fetch_eks(session: Any, region: str) -> dict[str, Any]:
 
 
 def fetch_eks_cluster_names(session: Any, region: str) -> list[str]:
-    c = session.client("eks", region_name=region)
+    c = session.client("eks", region_name=region, config=_CLIENT_CONFIG)
     return _paginate(c, "list_clusters", "clusters")
 
 
@@ -111,7 +117,7 @@ def fetch_elb(session: Any, region: str) -> dict[str, Any]:
     """Merge ELBv2 (ALB/NLB) and Classic ELB into [{'name', 'type', 'tags'}]."""
     merged: list[AwsDict] = []
 
-    v2 = session.client("elbv2", region_name=region)
+    v2 = session.client("elbv2", region_name=region, config=_CLIENT_CONFIG)
     lbs = _paginate(v2, "describe_load_balancers", "LoadBalancers")
     for i in range(0, len(lbs), 20):  # DescribeTags accepts at most 20 ARNs
         chunk = lbs[i:i + 20]
@@ -126,7 +132,7 @@ def fetch_elb(session: Any, region: str) -> dict[str, Any]:
                 "azs": [z["ZoneName"] for z in lb.get("AvailabilityZones", []) if z.get("ZoneName")],
             })
 
-    classic = session.client("elb", region_name=region)
+    classic = session.client("elb", region_name=region, config=_CLIENT_CONFIG)
     clbs = _paginate(classic, "describe_load_balancers", "LoadBalancerDescriptions")
     for i in range(0, len(clbs), 20):  # DescribeTags accepts at most 20 names
         chunk = clbs[i:i + 20]
@@ -142,16 +148,16 @@ def fetch_elb(session: Any, region: str) -> dict[str, Any]:
 
 
 def fetch_elb_names(session: Any, region: str) -> list[str]:
-    v2 = session.client("elbv2", region_name=region)
+    v2 = session.client("elbv2", region_name=region, config=_CLIENT_CONFIG)
     names = [lb["LoadBalancerName"] for lb in _paginate(v2, "describe_load_balancers", "LoadBalancers")]
-    classic = session.client("elb", region_name=region)
+    classic = session.client("elb", region_name=region, config=_CLIENT_CONFIG)
     names += [lb["LoadBalancerName"]
               for lb in _paginate(classic, "describe_load_balancers", "LoadBalancerDescriptions")]
     return names
 
 
 def fetch_elasticache(session: Any, region: str) -> dict[str, Any]:
-    c = session.client("elasticache", region_name=region)
+    c = session.client("elasticache", region_name=region, config=_CLIENT_CONFIG)
     groups = _paginate(c, "describe_replication_groups", "ReplicationGroups")
     clusters = _paginate(c, "describe_cache_clusters", "CacheClusters")
     # describe_serverless_caches has a registered botocore paginator (verified via

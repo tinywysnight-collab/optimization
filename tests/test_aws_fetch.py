@@ -1,4 +1,4 @@
-from hascore.scanners.aws_fetch import _collect_next_token, _paginate
+from hascore.scanners.aws_fetch import _collect_next_token, _paginate, fetch_asg
 
 
 class FakePaginator:
@@ -15,6 +15,23 @@ class FakeClient:
 
     def get_paginator(self, op):
         return FakePaginator(self._pages)
+
+
+class RecordingSession:
+    def __init__(self):
+        self.client_kwargs = {}
+
+    def client(self, name, region_name=None, config=None):
+        self.client_kwargs = {"name": name, "region_name": region_name, "config": config}
+        return FakeClient([])
+
+
+def test_clients_are_built_with_adaptive_retries():
+    session = RecordingSession()
+    fetch_asg(session, "us-east-1")
+    config = session.client_kwargs["config"]
+    assert config is not None
+    assert config.retries["mode"] == "adaptive"
 
 
 def test_paginate_concatenates_pages_by_key():
