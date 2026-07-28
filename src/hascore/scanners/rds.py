@@ -60,7 +60,11 @@ def evaluate_rds_multiaz(instances: list[AwsDict], clusters: list[AwsDict], regi
             reason = f"Aurora cluster instances span {len(member_azs)} AZs ({', '.join(sorted(az for az in member_azs if az is not None))})"
         else:
             score = 0.0
-            reason = "Aurora cluster has instances in only one AZ — no cross-AZ reader instance"
+            if len(member_azs) == 0:
+                reason = ("no cluster member instances with a resolvable AZ were found — "
+                          "cannot confirm cross-AZ redundancy")
+            else:
+                reason = "Aurora cluster has instances in only one AZ — no cross-AZ reader instance"
         score, exempted, suffix = apply_exemption(score, tags, MULTIAZ_TAG)
         results.append(ResourceScore(SERVICE, cid, region, score, reason + suffix, exempted))
 

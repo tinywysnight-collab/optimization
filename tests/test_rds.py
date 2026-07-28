@@ -98,6 +98,15 @@ def test_no_cross_region_replica_scores_0_and_exemption_applies():
     assert scores["db1"].score == 10.0 and scores["db1"].exempted
 
 
+def test_aurora_cluster_with_no_resolvable_members_reason_is_truthful():
+    cluster = {"DBClusterIdentifier": "c-empty", "DBClusterArn": "arn:aws:rds:us-east-1:1:cluster:c-empty",
+               "DBClusterMembers": [], "TagList": []}
+    scores = by_id(evaluate_rds_multiaz([], [cluster], R))
+    assert scores["c-empty"].score == 0.0
+    assert "only one AZ" not in scores["c-empty"].reason
+    assert "no cluster member" in scores["c-empty"].reason
+
+
 def test_aurora_global_database_member_scores_20():
     cluster = {"DBClusterIdentifier": "c1", "DBClusterArn": "arn:aws:rds:us-east-1:1:cluster:c1",
                "DBClusterMembers": [], "TagList": []}
