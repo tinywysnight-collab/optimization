@@ -15,6 +15,18 @@ def _paginate(client: Any, op: str, result_key: str, **kwargs: Any) -> list[Any]
     return items
 
 
+def _collect_next_token(call: Any, result_key: str, **kwargs: Any) -> list[Any]:
+    """Manual NextToken paging for operations without a registered paginator."""
+    items: list[Any] = []
+    token: str | None = None
+    while True:
+        response = call(**kwargs, NextToken=token) if token else call(**kwargs)
+        items.extend(response.get(result_key, []))
+        token = response.get("NextToken")
+        if not token:
+            return items
+
+
 def fetch_rds(session: Any, region: str) -> dict[str, Any]:
     c = session.client("rds", region_name=region)
     return {
@@ -52,7 +64,9 @@ def fetch_opensearch(session: Any, region: str) -> dict[str, Any]:
         d["ARN"]: tags_to_dict(c.list_tags(ARN=d["ARN"]).get("TagList", []))
         for d in domains if d.get("ARN")
     }
-    connections = _paginate(c, "describe_outbound_connections", "Connections")
+    # No boto3 paginator is registered for describe_outbound_connections
+    # (get_paginator would raise OperationNotPageableError); page manually.
+    connections = _collect_next_token(c.describe_outbound_connections, "Connections")
     return {"domains": domains, "tags_by_arn": tags_by_arn, "connections": connections}
 
 
