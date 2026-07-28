@@ -95,17 +95,32 @@ For each dimension (Multi-AZ, Cross-Region) independently:
 - ASGs belonging to EKS node groups / ECS capacity providers are **not excluded** from the Multi-AZ dimension; they are scored normally with their origin noted in the reason (based on tags such as `eks:cluster-name`). AZ coverage is a genuine per-node-group configuration decision. (The Cross-Region dimension treats EKS differently — see §6.)
 - Example reason: "configuration covers us-east-1a/1b/1c (3 AZs), score 20".
 
-### 5.4 OpenSearch (two items, 10 points each)
+### 5.4 OpenSearch (max 20, single score per domain)
 
-- **Data plane (10)**: `ZoneAwarenessEnabled == true` → 10.
-- **Control plane (10)**: the master-eligible nodes must be able to hold quorum through a single-AZ failure. Quorum is `masters // 2 + 1`, so **the count must be ≥3 and odd** — an even count tolerates no more failures than the odd number below it and risks a split vote. Which nodes count, and whether the domain's AZ spread matters, depends on the deployment:
-  - **With dedicated masters** (`DedicatedMasterEnabled`, count from `DedicatedMasterCount`): the count rule alone decides. AWS places dedicated masters across **three** AZs on its own, even when the domain selects two, so `ZoneAwarenessConfig.AvailabilityZoneCount` does not constrain them. See ["Dedicated master node distribution"](https://docs.aws.amazon.com/opensearch-service/latest/developerguide/managedomains-multiaz.html) — a 2-AZ domain with 3 dedicated masters is documented as "No downtime" during an AZ disruption.
-  - **Without dedicated masters** (count from `InstanceCount`): the data nodes hold the master role, so they follow the domain's own placement and **3 AZs are required** (`AvailabilityZoneCount == 3`).
-- **Known blind spot, deliberately not detected**: AWS's automatic three-AZ master placement does not hold when the region itself has only two AZs (e.g. `us-west-1`), or when an older-generation instance type is unavailable in three AZs. Both cases leave two masters in one AZ and one in another — a documented "50/50 chance of downtime". Neither is visible in the `DescribeDomains` response; detecting them would require an EC2 `DescribeAvailabilityZones` call plus a maintained list of legacy instance types. v1 scores the mainstream case and states the assumption in the reason text instead.
-- A domain without zone awareness necessarily has AZ count 1, so it scores 0+0 with no special-casing.
-- Example reasons:
-  - "zone awareness enabled (10/10); 3 master-eligible dedicated masters, which AWS distributes across three AZs regardless of the domain's 2 AZ(s) (10/10)" — total 20/20.
-  - "zone awareness enabled (10/10); 3 master-eligible data nodes (no dedicated masters) across 2 AZ(s) — a single-AZ failure may lose master quorum (0/10)" — total 10/20.
+The split the deployment makes is who holds the master role; the score follows it.
+
+- **With dedicated masters** (`DedicatedMasterEnabled`): master placement is AWS-managed
+  (spread across three AZs on its own, even for a two-AZ domain), so only the
+  **data-node spread** is the operator's decision — and it is binary:
+  - data nodes span ≥2 AZs (`ZoneAwarenessEnabled`) → **20**;
+  - single AZ → **0**. A healthy control plane over non-redundant data is not HA:
+    quorum would be protecting a cluster that loses its data with its one AZ.
+  - Legacy master counts (even, or fewer than three — the console now allows only
+    3 or 5) are **advisory only**: the reason notes that OpenSearch 7.x+ keeps an
+    odd voting set so even counts round down (2 acts as 1), but the score is unchanged.
+- **Without dedicated masters**: the data nodes hold the master role, so their own
+  AZ spread decides quorum survival:
+  - 3 AZs (`ZoneAwarenessConfig.AvailabilityZoneCount == 3`) → **20**;
+  - 2 AZs → **10** — a partition between the two AZs risks split-brain, and losing
+    the AZ holding the majority of nodes loses quorum;
+  - 1 AZ (zone awareness disabled) → **0**.
+- `ZoneAwarenessEnabled` with no `ZoneAwarenessConfig` is the old-style form and
+  counts as **2 AZs**, not one.
+- **Known blind spots, deliberately not detected**: AWS's automatic three-AZ master
+  placement does not hold in regions with only two AZs (e.g. `us-west-1`) or with
+  older instance types unavailable in three AZs — neither is visible in
+  `DescribeDomains`. Index replica counts live in the data-plane API and are not
+  checked; a domain whose indexes have zero replicas can still score 20.
 
 ### 5.5 FSx (max 20, Windows type only)
 

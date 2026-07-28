@@ -21,56 +21,65 @@ def by_id(scores):
     return {s.resource_id: s for s in scores}
 
 
-def test_full_marks_needs_za_and_3az_odd_masters():
-    d = domain("good", za=True, az_count=3, dedicated=True, master_count=3)
+def test_dedicated_masters_with_cross_az_data_nodes_score_20():
+    """Rule 1: with dedicated masters, only the data-node AZ spread matters —
+    master placement is AWS-managed. 2 AZs and 3 AZs both pass."""
+    for az in (2, 3):
+        d = domain(f"d{az}", za=True, az_count=az, dedicated=True, master_count=3)
+        scores = by_id(evaluate_opensearch_multiaz([d], {}, R))
+        assert scores[f"d{az}"].score == 20.0, f"{az} AZs should be full marks"
+
+
+def test_dedicated_masters_with_single_az_data_nodes_score_0():
+    """Healthy control plane over non-redundant data is still not HA: quorum
+    would be protecting a cluster that loses data with its one AZ."""
+    d = domain("noza", dedicated=True, master_count=3)
     scores = by_id(evaluate_opensearch_multiaz([d], {}, R))
-    assert scores["good"].score == 20.0
+    assert scores["noza"].score == 0.0
+    assert "single AZ" in scores["noza"].reason
 
 
-def test_dedicated_masters_are_not_penalised_for_a_2az_domain():
-    """AWS places dedicated masters across three AZs even when the domain itself
-    selects two, so a 2-AZ domain with 3 dedicated masters keeps its quorum.
-    See "Dedicated master node distribution" in the multi-AZ documentation."""
-    d = domain("half", za=True, az_count=2, dedicated=True, master_count=3)
+def test_unusual_dedicated_master_count_is_advisory_only():
+    """Legacy even/low master counts (console now allows only 3/5) do not
+    change the score, but the reason must flag them: 7.x+ ignores one node
+    to keep the voting set odd, so 2 masters are effectively 1."""
+    for count in (1, 2, 4):
+        d = domain(f"m{count}", za=True, az_count=3, dedicated=True, master_count=count)
+        s = by_id(evaluate_opensearch_multiaz([d], {}, R))[f"m{count}"]
+        assert s.score == 20.0, f"{count} masters must not change the score"
+        assert "master" in s.reason and "3 or 5" in s.reason
+    ok = domain("m3", za=True, az_count=3, dedicated=True, master_count=3)
+    assert "3 or 5" not in by_id(evaluate_opensearch_multiaz([ok], {}, R))["m3"].reason
+
+
+def test_no_dedicated_masters_three_azs_score_20():
+    d = domain("dn3", za=True, az_count=3, instance_count=3)
     scores = by_id(evaluate_opensearch_multiaz([d], {}, R))
-    assert scores["half"].score == 20.0
-    assert "across three AZs" in scores["half"].reason
+    assert scores["dn3"].score == 20.0
 
 
-def test_even_dedicated_master_count_fails_control_plane():
-    """Four masters need a quorum of 3; the AZ holding two of them going down
-    leaves two, which cannot elect a master."""
-    d = domain("even", za=True, az_count=3, dedicated=True, master_count=4)
+def test_no_dedicated_masters_two_azs_score_10_for_split_brain_risk():
+    """Rule 2: data nodes hold the master role; across only two AZs a
+    partition can leave neither side with a clear majority."""
+    d = domain("dn2", za=True, az_count=2, instance_count=4)
     scores = by_id(evaluate_opensearch_multiaz([d], {}, R))
-    assert scores["even"].score == 10.0
-    assert "even" in scores["even"].reason
+    assert scores["dn2"].score == 10.0
+    assert "split-brain" in scores["dn2"].reason
 
 
-def test_single_dedicated_master_fails_control_plane():
-    d = domain("lonely", za=True, az_count=3, dedicated=True, master_count=1)
+def test_no_dedicated_masters_single_az_scores_0():
+    scores = by_id(evaluate_opensearch_multiaz([domain("dn1")], {}, R))
+    assert scores["dn1"].score == 0.0
+
+
+def test_za_enabled_without_config_counts_as_two_azs():
+    """Old-style domains can report ZoneAwarenessEnabled with no
+    ZoneAwarenessConfig; zone awareness without a count historically means
+    two AZs, and must not be mistaken for one."""
+    d = {"DomainName": "legacy", "ARN": "arn:legacy", "ClusterConfig": {
+        "ZoneAwarenessEnabled": True, "DedicatedMasterEnabled": False, "InstanceCount": 2}}
     scores = by_id(evaluate_opensearch_multiaz([d], {}, R))
-    assert scores["lonely"].score == 10.0
-
-
-def test_no_za_scores_0():
-    scores = by_id(evaluate_opensearch_multiaz([domain("bad")], {}, R))
-    assert scores["bad"].score == 0.0
-
-
-def test_no_dedicated_masters_uses_data_node_count():
-    d = domain("datanodes", za=True, az_count=3, instance_count=3)
-    scores = by_id(evaluate_opensearch_multiaz([d], {}, R))
-    assert scores["datanodes"].score == 20.0
-
-
-def test_no_dedicated_masters_still_requires_three_azs():
-    """Without dedicated masters the data nodes hold the master role, so their
-    own AZ spread decides whether quorum survives a single-AZ failure — AWS's
-    automatic three-AZ master placement does not apply here."""
-    d = domain("datanodes-2az", za=True, az_count=2, instance_count=3)
-    scores = by_id(evaluate_opensearch_multiaz([d], {}, R))
-    assert scores["datanodes-2az"].score == 10.0
-    assert "2 AZ" in scores["datanodes-2az"].reason
+    assert scores["legacy"].score == 10.0
 
 
 def test_exemption_via_tags_by_arn():
