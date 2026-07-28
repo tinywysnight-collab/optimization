@@ -1800,9 +1800,9 @@ git commit -m "feat: ElastiCache multi-AZ and cross-region evaluators"
 
 ---
 
-### Task 12b: ELB cross-region evaluator
+### Task 12b: ELB evaluators
 
-ELB participates in the cross-region dimension only (spec §6, §12): name-matching heuristic over ALB/NLB and Classic ELB names. No multi-AZ scoring for ELB in v1.
+Multi-AZ scores **NLB only** (spec §5.7): ALB is N/A because AWS enforces ≥2 AZs at creation, Classic/Gateway are out of scope. Cross-region covers **all types** by name-matching heuristic (spec §6).
 
 **Files:**
 - Create: `src/hascore/scanners/elb.py`
@@ -1812,18 +1812,53 @@ ELB participates in the cross-region dimension only (spec §6, §12): name-match
 
 ```python
 # tests/test_elb.py
-from hascore.scanners.elb import evaluate_elb_crossregion
+from hascore.scanners.elb import evaluate_elb_crossregion, evaluate_elb_multiaz
 
 R = "us-east-1"
 
 
-def lb(name, lb_type="application", tags=None):
-    return {"name": name, "type": lb_type, "tags": tags or {}}
+def lb(name, lb_type="application", tags=None, azs=("us-east-1a",)):
+    return {"name": name, "type": lb_type, "tags": tags or {}, "azs": list(azs)}
 
 
 def by_id(scores):
     return {s.resource_id: s for s in scores}
 
+
+# --- multi-AZ (NLB only) ---
+
+def test_nlb_across_two_azs_scores_20():
+    scores = by_id(evaluate_elb_multiaz(
+        [lb("nlb-1", lb_type="network", azs=["us-east-1a", "us-east-1b"])], R))
+    assert scores["nlb-1"].score == 20.0
+    assert "2 AZ" in scores["nlb-1"].reason
+
+
+def test_single_az_nlb_scores_0_and_exemption_floors():
+    lbs = [
+        lb("nlb-solo", lb_type="network"),
+        lb("nlb-exempt", lb_type="network", tags={"disable-multiaz": ""}),
+    ]
+    scores = by_id(evaluate_elb_multiaz(lbs, R))
+    assert scores["nlb-solo"].score == 0.0
+    assert scores["nlb-exempt"].score == 10.0 and scores["nlb-exempt"].exempted
+
+
+def test_alb_is_na_because_aws_enforces_two_azs():
+    scores = by_id(evaluate_elb_multiaz(
+        [lb("alb-1", lb_type="application", azs=["us-east-1a", "us-east-1b"])], R))
+    assert scores["alb-1"].score is None
+    assert "enforces" in scores["alb-1"].reason
+
+
+def test_classic_and_gateway_are_na():
+    scores = by_id(evaluate_elb_multiaz(
+        [lb("clb-1", lb_type="classic"), lb("gwlb-1", lb_type="gateway")], R))
+    assert scores["clb-1"].score is None and scores["gwlb-1"].score is None
+    assert "NLB only" in scores["clb-1"].reason
+
+
+# --- cross-region (all types) ---
 
 def test_name_match_scores_20_with_heuristic_reason():
     scores = by_id(evaluate_elb_crossregion(
@@ -1859,18 +1894,46 @@ Expected: FAIL — `ImportError`
 - [ ] **Step 3: Write `src/hascore/scanners/elb.py`**
 
 ```python
-"""ELB evaluator (spec §6): cross-region dimension only, name-matching heuristic.
+"""ELB evaluators (spec §5.7, §6): multi-AZ scores NLB only; cross-region covers all types.
 
-Load balancers are passed as normalized dicts: {"name": str, "type": str, "tags": dict}
+Load balancers are passed as normalized dicts:
+{"name": str, "type": str, "tags": dict, "azs": list[str]}
 (the fetch layer merges ELBv2 and Classic ELB into this shape).
 """
 from __future__ import annotations
 
 from ..models import ResourceScore
 from ..naming import strip_region
-from ..tags import CROSSREGION_TAG, apply_exemption
+from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption
 
 SERVICE = "elb"
+_SCORED_MULTIAZ_TYPE = "network"
+
+
+def evaluate_elb_multiaz(load_balancers: list[dict], region: str) -> list[ResourceScore]:
+    results: list[ResourceScore] = []
+    for lb in load_balancers:
+        name, lb_type = lb["name"], lb["type"]
+        if lb_type == "application":
+            reason = ("AWS enforces at least two AZ subnets when an ALB is created, so there "
+                      "is no configuration lever to assess; recorded N/A")
+            results.append(ResourceScore(SERVICE, name, region, None, reason))
+            continue
+        if lb_type != _SCORED_MULTIAZ_TYPE:
+            reason = (f"multi-AZ scoring covers NLB only; this is a '{lb_type}' load balancer, "
+                      "recorded N/A")
+            results.append(ResourceScore(SERVICE, name, region, None, reason))
+            continue
+        azs = sorted(set(lb.get("azs", [])))
+        if len(azs) >= 2:
+            score = 20.0
+            reason = f"NLB is enabled in {len(azs)} AZs: {', '.join(azs)}"
+        else:
+            score = 0.0
+            reason = f"NLB is enabled in only {len(azs)} AZ: {', '.join(azs) or 'none'}"
+        score, exempted, suffix = apply_exemption(score, lb.get("tags", {}), MULTIAZ_TAG)
+        results.append(ResourceScore(SERVICE, name, region, score, reason + suffix, exempted))
+    return results
 
 
 def evaluate_elb_crossregion(load_balancers: list[dict], standby_names: dict[str, set[str]],
@@ -1897,13 +1960,13 @@ def evaluate_elb_crossregion(load_balancers: list[dict], standby_names: dict[str
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `.venv/bin/pytest tests/test_elb.py -v`
-Expected: 4 passed
+Expected: 8 passed
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/hascore/scanners/elb.py tests/test_elb.py
-git commit -m "feat: ELB cross-region evaluator (name-matching heuristic)"
+git commit -m "feat: ELB multi-AZ (NLB only) and cross-region evaluators"
 ```
 
 ---
@@ -2041,8 +2104,12 @@ def fetch_elb(session, region: str) -> dict:
             ResourceArns=[lb["LoadBalancerArn"] for lb in chunk]).get("TagDescriptions", [])
         tags_by_arn = {t["ResourceArn"]: tags_to_dict(t.get("Tags", [])) for t in tag_descs}
         for lb in chunk:
-            merged.append({"name": lb["LoadBalancerName"], "type": lb.get("Type", "unknown"),
-                           "tags": tags_by_arn.get(lb["LoadBalancerArn"], {})})
+            merged.append({
+                "name": lb["LoadBalancerName"],
+                "type": lb.get("Type", "unknown"),
+                "tags": tags_by_arn.get(lb["LoadBalancerArn"], {}),
+                "azs": [z["ZoneName"] for z in lb.get("AvailabilityZones", []) if z.get("ZoneName")],
+            })
 
     classic = session.client("elb", region_name=region)
     clbs = _paginate(classic, "describe_load_balancers", "LoadBalancerDescriptions")
@@ -2053,7 +2120,8 @@ def fetch_elb(session, region: str) -> dict:
         tags_by_name = {t["LoadBalancerName"]: tags_to_dict(t.get("Tags", [])) for t in tag_descs}
         for lb in chunk:
             merged.append({"name": lb["LoadBalancerName"], "type": "classic",
-                           "tags": tags_by_name.get(lb["LoadBalancerName"], {})})
+                           "tags": tags_by_name.get(lb["LoadBalancerName"], {}),
+                           "azs": lb.get("AvailabilityZones", [])})
 
     return {"load_balancers": merged}
 
@@ -2188,9 +2256,10 @@ def scan(session, spec):
     from ..models import ServiceScan
     from .aws_fetch import fetch_elb, fetch_elb_names
     primary = spec.regions[0]
+    raw = fetch_elb(session, primary)
     out = ServiceScan()
-    if len(spec.regions) > 1:  # ELB is scored in the cross-region dimension only (spec §6)
-        raw = fetch_elb(session, primary)
+    out.multi_az = evaluate_elb_multiaz(raw["load_balancers"], primary)
+    if len(spec.regions) > 1:
         standby_names = {
             r: {strip_region(n) for n in fetch_elb_names(session, r)}
             for r in spec.regions[1:]
@@ -2871,7 +2940,7 @@ git commit -m "feat: CLI entry point with end-to-end wiring test"
 | §2 input contract | Task 5 |
 | §3 authentication / profile matching | Task 6, Task 14 (inaccessible), Task 17 (CLI resolution) |
 | §4 two-level aggregation | Task 3 |
-| §5.1–5.6 multi-AZ criteria | Tasks 7–12 |
+| §5.1–5.7 multi-AZ criteria | Tasks 7–12b |
 | §6 cross-region criteria + name matching | Task 4 (naming), Tasks 7–12b (evaluators, incl. FSx Name-tag matching in Task 11), Task 13 (standby fetches) |
 | §7 exemption tags | Task 2, exercised in every evaluator test |
 | §8 N/A semantics / fault tolerance | Task 14 |

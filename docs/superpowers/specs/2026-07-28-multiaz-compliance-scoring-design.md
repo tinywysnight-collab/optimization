@@ -93,6 +93,12 @@ For each dimension (Multi-AZ, Cross-Region) independently:
 - **Standalone Redis node (no replication group)**: 0, reason "single node, no replica".
 - **Memcached / Serverless / other forms**: recorded as **N/A**, listed in the report with a note that they are excluded from scoring.
 
+### 5.7 ELB (max 20, NLB only)
+
+- **Network Load Balancer**: enabled AZs ≥2 → 20; a single AZ → 0. Judged by configuration (`AvailabilityZones` from `DescribeLoadBalancers`), consistent with ASG.
+- **Application Load Balancer**: recorded as **N/A**. AWS enforces at least two AZ subnets when an ALB is created, so there is no configuration lever to assess — scoring it would add a permanently-full-marks dimension that dilutes real failures elsewhere. Same principle as FSx Lustre in §5.5.
+- **Classic ELB and Gateway Load Balancer**: recorded as **N/A**, listed in the report with a note that scoring covers NLB only.
+
 ## 6. Cross-Region dimension criteria (max 20, independent of the Multi-AZ score)
 
 - Scored only when the input has ≥2 `regions`; **single-region accounts are N/A** (not 0).
@@ -110,7 +116,7 @@ For each dimension (Multi-AZ, Cross-Region) independently:
 | ELB (ALB/NLB/Classic) | **Name-matching heuristic**: same load balancer name after region-stripping exists in a standby region | match → 20 |
 | FSx for Windows | **Name-matching heuristic**: same `Name` tag after region-stripping exists on a Windows file system in a standby region | match → 20 |
 
-- **ELB participates in the cross-region dimension only**: its multi-AZ posture is not scored in v1 (see §12). Both ELBv2 (ALB/NLB) and Classic ELB are covered; the match value is the load balancer name.
+- **ELB cross-region scoring covers all load balancer types** (ALB, NLB, Classic), unlike the Multi-AZ dimension which scores NLB only (§5.7) — a missing DR copy is a real gap regardless of load balancer type. The match value is the load balancer name.
 - **FSx for Windows** has no native cross-region replication (AWS Backup copies are backups, not standby; DataSync sync is invisible from the FSx API), so it is scored with the name-matching heuristic over the **`Name` tag** (file system ids are random, so the tag is the only usable match value). A Windows file system **without a `Name` tag scores 0** with a reason explaining there is no name to match on — N/A would let untagged resources escape scoring. Other FSx types remain N/A.
 - Native-relation detection: a standby in *any* other region counts; if that region is not in the input `regions` list, the reason says so.
 - Name-matching scans only the standby regions declared in the input.
@@ -167,7 +173,7 @@ Core principle: **"not scanned" and "scanned and found bad" are never conflated;
 ## 12. Explicitly out of scope for v1 (YAGNI list)
 
 - Account-level exemptions (allowlist)
-- ELB multi-AZ scoring (ELB is checked in the cross-region dimension only)
+- ALB / Classic ELB / Gateway LB multi-AZ scoring (only NLB is scored in the Multi-AZ dimension)
 - `pattern_id` influencing scores (interface reserved)
 - OpenSearch data-plane checks (index replica counts), reading cross-cluster replication rules
 - Network topology checks beyond EFS mount targets
