@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from hascore import main, render_html
+from hascore import render_html, score
 from hascore.input_loader import InputError
 from hascore.models import ResourceScore, ServiceScan
 
@@ -48,7 +48,7 @@ PAYLOAD = {"accounts": [
 
 
 def run(output_format, aws_config):
-    return main(PAYLOAD, output_format, aws_config=aws_config, session_factory=fake_factory)
+    return score(PAYLOAD, output_format, aws_config=aws_config, session_factory=fake_factory)
 
 
 def undated(value):
@@ -68,7 +68,7 @@ def test_json_format_returns_the_report_dict(scanners, aws_config):
 
 
 def test_json_is_the_default_format(scanners, aws_config):
-    default = main(PAYLOAD, aws_config=aws_config, session_factory=fake_factory)
+    default = score(PAYLOAD, aws_config=aws_config, session_factory=fake_factory)
     assert undated(default) == undated(run("json", aws_config))
 
 
@@ -99,4 +99,4 @@ def test_unknown_format_is_rejected(scanners, aws_config):
 
 def test_invalid_payload_raises_input_error(aws_config):
     with pytest.raises(InputError, match="accounts"):
-        main({}, aws_config=aws_config, session_factory=fake_factory)
+        score({}, aws_config=aws_config, session_factory=fake_factory)

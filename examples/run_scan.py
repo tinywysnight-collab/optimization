@@ -2,7 +2,7 @@
 
     uv run python examples/run_scan.py
 
-hascore itself is a library: `main(payload, output_format)` scans the accounts
+hascore itself is a library: `score(payload, output_format)` scans the accounts
 and returns the result. Everything else — where the payload comes from, what you
 do with the report — belongs to you, which is why it lives here and not in the
 package.
@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from hascore import main, render_html
+from hascore import render_html, score
 
 
 def build_payload() -> dict[str, Any]:
@@ -45,9 +45,9 @@ def build_payload() -> dict[str, Any]:
 def run() -> None:
     payload = build_payload()
 
-    # One scan, then both formats rendered from it. Calling main() twice would
+    # One scan, then both formats rendered from it. Calling score() twice would
     # scan every account twice — minutes of extra API calls at real scale.
-    report = main(payload, "json", workers=8)
+    report = score(payload, "json", workers=8)
     html = render_html(report)
 
     out = Path("out")

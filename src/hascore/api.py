@@ -16,10 +16,10 @@ HTML = "html"
 _FORMATS = (JSON, HTML)
 
 
-def main(payload: dict[str, Any], output_format: str = JSON, *,
-         aws_config: str | Path | None = None,
-         workers: int = 8,
-         session_factory: SessionFactory | None = None) -> dict[str, Any] | str:
+def score(payload: dict[str, Any], output_format: str = JSON, *,
+          aws_config: str | Path | None = None,
+          workers: int = 8,
+          session_factory: SessionFactory | None = None) -> dict[str, Any] | str:
     """Scan the accounts described by `payload` and return the report.
 
     `payload` is the account list (spec §2): {"accounts": [{account_id, regions,

@@ -1,12 +1,12 @@
 """AWS high-availability compliance scorer.
 
-    from hascore import main
+    from hascore import score
 
-    report = main(payload)        # dict
-    html = main(payload, "html")  # str
+    report = score(payload)        # dict
+    html = score(payload, "html")  # str
 """
-from .api import main
+from .api import score
 from .input_loader import InputError
 from .report.html_report import render_html
 
-__all__ = ["InputError", "main", "render_html"]
+__all__ = ["InputError", "render_html", "score"]

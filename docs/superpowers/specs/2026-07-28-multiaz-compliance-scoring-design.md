@@ -157,7 +157,7 @@ Core principle: **"not scanned" and "scanned and found bad" are never conflated;
 
 - **JSON (source of truth)**: org summary → per account (both scores, inaccessible flag) → per service dimension score → per resource (score, reason, region, exemption flag, pass-through `pattern_id` / `application`).
 - **HTML (human report)**: single self-contained file (no external resources). Structure: org summary table (both scores per account) → account detail (service dimension scores) → resource detail (scores and reasons). Shows `pattern_id` / application details, inaccessible accounts, and the out-of-scope resource list.
-- Run mode: **a single callable entry point**, `main(payload, output_format)`, returning the result rather than writing files:
+- Run mode: **a single callable entry point**, `score(payload, output_format)`, returning the result rather than writing files:
   - `output_format="json"` returns the report as a dict; the caller decides whether to serialize it.
   - `output_format="html"` returns a self-contained HTML document as a string.
   - Both formats render from the same scan; `render_html(report)` produces HTML from an already-returned JSON report without rescanning.
@@ -171,7 +171,7 @@ Core principle: **"not scanned" and "scanned and found bad" are never conflated;
 
 ## 11. Technology choices
 
-- **Python 3.11+ / boto3**, imported as a library (`from hascore import main`).
+- **Python 3.11+ / boto3**, imported as a library (`from hascore import score`).
 - Required AWS permissions: read-only `Describe*/List*` (covered by `ReadOnlyAccess` or `SecurityAudit`).
 - HTML rendered with a template engine (Jinja2); JSON is the primary artifact, HTML is rendered from the same data.
 - Testing: pytest; the AWS API layer is wrapped behind injectable interfaces; the scoring engine is pure functions, unit-testable offline.
