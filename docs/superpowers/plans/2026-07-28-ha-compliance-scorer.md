@@ -38,11 +38,17 @@ tests/
   test_scan_runner.py test_reports.py test_cli.py
 ```
 
-**Conventions used throughout:**
+**Conventions used throughout** (project standards come from `AGENTS.md`):
 - A resource score of `None` means N/A (excluded from aggregation). `0.0` means "checked and failing". Never conflate them.
 - All resource scores are on a 0–20 scale (split-scored services return one combined resource score).
 - Every evaluator is a pure function: raw AWS response dicts in, `ResourceScore` list out.
-- Run tests with `.venv/bin/pytest`; run `git add`/`git commit` from the repo root.
+- **Dependencies are managed with `uv`** (`pyproject.toml` + `uv.lock`, never requirements.txt). Run everything through `uv run`: `uv run pytest`, `uv run mypy src/`, `uv run ruff check src/`.
+- **Type hints must be complete — `mypy --strict` must pass on `src/`.** Annotate every function, including `scan()` glue and boto3-facing helpers (`session` and boto3 clients are `Any`; that is expected since boto3 ships no stubs).
+- **Commit messages follow `<type>(<scope>): <subject>`**, imperative mood, ≤72 chars.
+- Before each commit, run `uv run pytest`, `uv run ruff check src/`, and `uv run mypy src/` — all three must be clean.
+- Never commit `.idea/` or `.venv/`.
+
+**Deliberate deviation from AGENTS.md:** the project standard says "Async: `asyncio`/`aiohttp`, never block the main thread". This tool uses `ThreadPoolExecutor` with synchronous **boto3** instead, because boto3 has no async API (async would require the third-party `aioboto3`) and the workload is I/O-bound across independent accounts, which a thread pool handles correctly. Do not convert to asyncio.
 
 ---
 
@@ -50,7 +56,7 @@ tests/
 
 **Files:**
 - Create: `pyproject.toml`
-- Create: `.gitignore`
+- Modify: `.gitignore` (it already contains `/.idea/` — append, do not overwrite)
 - Create: `src/hascore/__init__.py`
 - Create: `src/hascore/scanners/__init__.py`
 - Create: `src/hascore/report/__init__.py`
@@ -65,9 +71,6 @@ description = "AWS HA compliance scorer: multi-AZ and cross-region scoring per a
 requires-python = ">=3.11"
 dependencies = ["boto3>=1.34", "jinja2>=3.1"]
 
-[project.optional-dependencies]
-dev = ["pytest>=8"]
-
 [project.scripts]
 hascore = "hascore.cli:main"
 
@@ -80,9 +83,27 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+src = ["src", "tests"]
+
+[tool.mypy]
+strict = true
+files = ["src"]
+
+# boto3 ships no type stubs; its clients are intentionally Any at our boundary.
+[[tool.mypy.overrides]]
+module = ["boto3.*", "botocore.*"]
+ignore_missing_imports = true
+
+[dependency-groups]
+dev = ["pytest>=8", "mypy>=1.11", "ruff>=0.6"]
 ```
 
-- [ ] **Step 2: Create `.gitignore`**
+- [ ] **Step 2: Append to `.gitignore`**
+
+The file already exists and contains `/.idea/`. **Append** these lines, keeping the existing content:
 
 ```
 .venv/
@@ -90,27 +111,36 @@ __pycache__/
 *.pyc
 out/
 *.egg-info/
+uv.lock
 ```
+
+Note: `uv.lock` is listed here only because this tool is an internal CLI, not a published library — if the team later wants reproducible pinning committed, remove that line and commit the lock file.
 
 - [ ] **Step 3: Create empty package files**
 
 Create `src/hascore/__init__.py`, `src/hascore/scanners/__init__.py`, `src/hascore/report/__init__.py`, each containing nothing (empty file).
 
-- [ ] **Step 4: Create venv and install**
+- [ ] **Step 4: Sync dependencies with uv**
 
-Run: `python3 -m venv .venv && .venv/bin/pip install -q -e '.[dev]'`
-Expected: exits 0.
+Run: `uv sync`
+Expected: exits 0, creates `.venv/` and `uv.lock`.
 
-- [ ] **Step 5: Verify pytest runs**
+- [ ] **Step 5: Verify the toolchain runs**
 
-Run: `.venv/bin/pytest`
+Run: `uv run pytest`
 Expected: "no tests ran" (exit code 5) — correct at this stage.
+
+Run: `uv run ruff check src/`
+Expected: "All checks passed!"
+
+Run: `uv run mypy src/`
+Expected: "Success: no issues found" (the package is empty, so this only proves mypy is wired up).
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add pyproject.toml .gitignore src/
-git commit -m "chore: scaffold hascore package"
+git commit -m "chore(scaffold): set up hascore package with uv, ruff, mypy"
 ```
 
 ---
@@ -163,7 +193,7 @@ def test_no_tag_no_exemption():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_tags.py -v`
+Run: `uv run pytest tests/test_tags.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'hascore.tags'`
 
 - [ ] **Step 3: Write `src/hascore/models.py`**
@@ -177,6 +207,9 @@ from typing import Any
 
 MULTI_AZ = "multi_az"
 CROSS_REGION = "cross_region"
+
+# Raw AWS API response objects. boto3 ships no type stubs, so their shape is Any.
+AwsDict = dict[str, Any]
 
 
 @dataclass
@@ -241,12 +274,14 @@ class ServiceScan:
 """Exception-tag (exemption) semantics: a floor of 10, never a cap."""
 from __future__ import annotations
 
+from .models import AwsDict
+
 MULTIAZ_TAG = "disable-multiaz"
 CROSSREGION_TAG = "disable-crossregion"
 EXEMPT_FLOOR = 10.0
 
 
-def tags_to_dict(tags: list[dict] | None) -> dict[str, str]:
+def tags_to_dict(tags: list[AwsDict] | None) -> dict[str, str]:
     """Convert an AWS [{'Key': ..., 'Value': ...}] tag list to a plain dict."""
     if not tags:
         return {}
@@ -268,14 +303,14 @@ def apply_exemption(score: float, tags: dict[str, str], tag_key: str) -> tuple[f
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_tags.py -v`
+Run: `uv run pytest tests/test_tags.py -v`
 Expected: 6 passed
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add src/hascore/models.py src/hascore/tags.py tests/test_tags.py
-git commit -m "feat: data model and exception-tag exemption logic"
+git commit -m "feat(models): add data model and exception-tag exemption logic"
 ```
 
 ---
@@ -331,7 +366,7 @@ def test_finalize_dimension_populates_fields():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_aggregation.py -v`
+Run: `uv run pytest tests/test_aggregation.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'hascore.aggregation'`
 
 - [ ] **Step 3: Write `src/hascore/aggregation.py`**
@@ -369,14 +404,14 @@ def finalize_dimension(dim: DimensionResult) -> None:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_aggregation.py -v`
+Run: `uv run pytest tests/test_aggregation.py -v`
 Expected: 6 passed
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/hascore/aggregation.py tests/test_aggregation.py
-git commit -m "feat: two-level score aggregation with strict N/A semantics"
+git commit -m "feat(aggregation): add two-level scoring with strict N/A semantics"
 ```
 
 ---
@@ -425,7 +460,7 @@ def test_matching_is_case_insensitive():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_naming.py -v`
+Run: `uv run pytest tests/test_naming.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'hascore.naming'`
 
 - [ ] **Step 3: Write `src/hascore/naming.py`**
@@ -453,14 +488,14 @@ def strip_region(name: str) -> str:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_naming.py -v`
+Run: `uv run pytest tests/test_naming.py -v`
 Expected: 7 passed
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/hascore/naming.py tests/test_naming.py
-git commit -m "feat: region-stripping name normalization"
+git commit -m "feat(naming): add region-stripping name normalization"
 ```
 
 ---
@@ -534,7 +569,7 @@ def test_rejects_missing_accounts_key(tmp_path):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_input_loader.py -v`
+Run: `uv run pytest tests/test_input_loader.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'hascore.input_loader'`
 
 - [ ] **Step 3: Write `src/hascore/input_loader.py`**
@@ -580,14 +615,14 @@ def load_accounts(path: str | Path) -> list[AccountSpec]:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_input_loader.py -v`
+Run: `uv run pytest tests/test_input_loader.py -v`
 Expected: 5 passed
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/hascore/input_loader.py tests/test_input_loader.py
-git commit -m "feat: account-list input loader with validation"
+git commit -m "feat(input): add account-list loader with validation"
 ```
 
 ---
@@ -663,7 +698,7 @@ def test_multiple_matches_raise_and_name_candidates(mapping):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_profile_resolver.py -v`
+Run: `uv run pytest tests/test_profile_resolver.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'hascore.profile_resolver'`
 
 - [ ] **Step 3: Write `src/hascore/profile_resolver.py`**
@@ -720,14 +755,14 @@ def resolve_profile(spec: AccountSpec, mapping: dict[str, list[str]]) -> str:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_profile_resolver.py -v`
+Run: `uv run pytest tests/test_profile_resolver.py -v`
 Expected: 5 passed
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/hascore/profile_resolver.py tests/test_profile_resolver.py
-git commit -m "feat: AWS config profile resolver with sso_account_id matching"
+git commit -m "feat(profile): resolve profiles via sso_account_id matching"
 ```
 
 ---
@@ -855,7 +890,7 @@ def test_aurora_global_database_member_scores_20():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_rds.py -v`
+Run: `uv run pytest tests/test_rds.py -v`
 Expected: FAIL — `ImportError` (module `hascore.scanners.rds` does not exist)
 
 - [ ] **Step 3: Write `src/hascore/scanners/rds.py`**
@@ -864,17 +899,17 @@ Expected: FAIL — `ImportError` (module `hascore.scanners.rds` does not exist)
 """RDS evaluators (spec §5.1, §6). Pure functions over describe_* output."""
 from __future__ import annotations
 
-from ..models import ResourceScore
+from ..models import AwsDict, ResourceScore
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption, tags_to_dict
 
 SERVICE = "rds"
 
 
-def _is_aurora(instance: dict) -> bool:
+def _is_aurora(instance: AwsDict) -> bool:
     return (instance.get("Engine") or "").startswith("aurora")
 
 
-def _is_replica(instance: dict) -> bool:
+def _is_replica(instance: AwsDict) -> bool:
     return bool(instance.get("ReadReplicaSourceDBInstanceIdentifier"))
 
 
@@ -882,7 +917,7 @@ def _arn_region(arn: str) -> str:
     return arn.split(":")[3]
 
 
-def evaluate_rds_multiaz(instances: list[dict], clusters: list[dict], region: str) -> list[ResourceScore]:
+def evaluate_rds_multiaz(instances: list[AwsDict], clusters: list[AwsDict], region: str) -> list[ResourceScore]:
     results: list[ResourceScore] = []
     az_by_id = {i["DBInstanceIdentifier"]: i.get("AvailabilityZone") for i in instances}
 
@@ -927,7 +962,7 @@ def evaluate_rds_multiaz(instances: list[dict], clusters: list[dict], region: st
     return results
 
 
-def evaluate_rds_crossregion(instances: list[dict], clusters: list[dict], global_clusters: list[dict],
+def evaluate_rds_crossregion(instances: list[AwsDict], clusters: list[AwsDict], global_clusters: list[AwsDict],
                              primary_region: str, declared_regions: list[str]) -> list[ResourceScore]:
     results: list[ResourceScore] = []
 
@@ -973,14 +1008,14 @@ def evaluate_rds_crossregion(instances: list[dict], clusters: list[dict], global
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_rds.py -v`
+Run: `uv run pytest tests/test_rds.py -v`
 Expected: 9 passed
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/hascore/scanners/rds.py tests/test_rds.py
-git commit -m "feat: RDS multi-AZ and cross-region evaluators"
+git commit -m "feat(rds): add multi-AZ and cross-region evaluators"
 ```
 
 ---
@@ -1053,7 +1088,7 @@ def test_same_region_replication_does_not_count():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_efs.py -v`
+Run: `uv run pytest tests/test_efs.py -v`
 Expected: FAIL — `ImportError`
 
 - [ ] **Step 3: Write `src/hascore/scanners/efs.py`**
@@ -1062,13 +1097,13 @@ Expected: FAIL — `ImportError`
 """EFS evaluators (spec §5.2, §6): storage 10 + mount targets 10; replication cross-region."""
 from __future__ import annotations
 
-from ..models import ResourceScore
+from ..models import AwsDict, ResourceScore
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption, tags_to_dict
 
 SERVICE = "efs"
 
 
-def evaluate_efs_multiaz(filesystems: list[dict], mount_targets_by_fs: dict[str, list[dict]],
+def evaluate_efs_multiaz(filesystems: list[AwsDict], mount_targets_by_fs: dict[str, list[AwsDict]],
                          region: str) -> list[ResourceScore]:
     results: list[ResourceScore] = []
     for fs in filesystems:
@@ -1087,7 +1122,7 @@ def evaluate_efs_multiaz(filesystems: list[dict], mount_targets_by_fs: dict[str,
     return results
 
 
-def evaluate_efs_crossregion(filesystems: list[dict], replications: list[dict],
+def evaluate_efs_crossregion(filesystems: list[AwsDict], replications: list[AwsDict],
                              primary_region: str, declared_regions: list[str]) -> list[ResourceScore]:
     dest_by_fs: dict[str, set[str]] = {}
     for rep in replications:
@@ -1116,14 +1151,14 @@ def evaluate_efs_crossregion(filesystems: list[dict], replications: list[dict],
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_efs.py -v`
+Run: `uv run pytest tests/test_efs.py -v`
 Expected: 6 passed
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/hascore/scanners/efs.py tests/test_efs.py
-git commit -m "feat: EFS multi-AZ and cross-region evaluators"
+git commit -m "feat(efs): add multi-AZ and cross-region evaluators"
 ```
 
 ---
@@ -1209,7 +1244,7 @@ def test_cross_region_skips_eks_node_group_asgs():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_asg.py -v`
+Run: `uv run pytest tests/test_asg.py -v`
 Expected: FAIL — `ImportError`
 
 - [ ] **Step 3: Write `src/hascore/scanners/asg.py`**
@@ -1218,7 +1253,7 @@ Expected: FAIL — `ImportError`
 """ASG evaluators (spec §5.3, §6): config-based multi-AZ; name-matching cross-region."""
 from __future__ import annotations
 
-from ..models import ResourceScore
+from ..models import AwsDict, ResourceScore
 from ..naming import strip_region
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption, tags_to_dict
 
@@ -1226,13 +1261,13 @@ SERVICE = "asg"
 EKS_CLUSTER_TAG = "eks:cluster-name"
 
 
-def is_eks_asg(group: dict) -> bool:
+def is_eks_asg(group: AwsDict) -> bool:
     """EKS node-group ASGs are excluded from cross-region scoring: their names are
     AWS-generated random strings and EKS is matched at the cluster level (spec §6)."""
     return EKS_CLUSTER_TAG in tags_to_dict(group.get("Tags"))
 
 
-def evaluate_asg_multiaz(groups: list[dict], region: str) -> list[ResourceScore]:
+def evaluate_asg_multiaz(groups: list[AwsDict], region: str) -> list[ResourceScore]:
     results: list[ResourceScore] = []
     for g in groups:
         name = g["AutoScalingGroupName"]
@@ -1250,7 +1285,7 @@ def evaluate_asg_multiaz(groups: list[dict], region: str) -> list[ResourceScore]
     return results
 
 
-def evaluate_asg_crossregion(groups: list[dict], standby_names: dict[str, set[str]],
+def evaluate_asg_crossregion(groups: list[AwsDict], standby_names: dict[str, set[str]],
                              primary_region: str) -> list[ResourceScore]:
     """standby_names: {standby_region: set of region-stripped match values}."""
     results: list[ResourceScore] = []
@@ -1276,14 +1311,14 @@ def evaluate_asg_crossregion(groups: list[dict], standby_names: dict[str, set[st
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_asg.py -v`
+Run: `uv run pytest tests/test_asg.py -v`
 Expected: 7 passed
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/hascore/scanners/asg.py tests/test_asg.py
-git commit -m "feat: ASG multi-AZ and cross-region evaluators"
+git commit -m "feat(asg): add multi-AZ and cross-region evaluators"
 ```
 
 ---
@@ -1372,7 +1407,7 @@ def test_cross_region_no_match_scores_0():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_opensearch.py -v`
+Run: `uv run pytest tests/test_opensearch.py -v`
 Expected: FAIL — `ImportError`
 
 - [ ] **Step 3: Write `src/hascore/scanners/opensearch.py`**
@@ -1381,14 +1416,14 @@ Expected: FAIL — `ImportError`
 """OpenSearch evaluators (spec §5.4, §6): data plane 10 + control plane 10; name-matching cross-region."""
 from __future__ import annotations
 
-from ..models import ResourceScore
+from ..models import AwsDict, ResourceScore
 from ..naming import strip_region
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption
 
 SERVICE = "opensearch"
 
 
-def evaluate_opensearch_multiaz(domains: list[dict], tags_by_arn: dict[str, dict[str, str]],
+def evaluate_opensearch_multiaz(domains: list[AwsDict], tags_by_arn: dict[str, dict[str, str]],
                                 region: str) -> list[ResourceScore]:
     results: list[ResourceScore] = []
     for d in domains:
@@ -1416,8 +1451,8 @@ def evaluate_opensearch_multiaz(domains: list[dict], tags_by_arn: dict[str, dict
     return results
 
 
-def evaluate_opensearch_crossregion(domains: list[dict], tags_by_arn: dict[str, dict[str, str]],
-                                    standby_domains: dict[str, set[str]], connections: list[dict],
+def evaluate_opensearch_crossregion(domains: list[AwsDict], tags_by_arn: dict[str, dict[str, str]],
+                                    standby_domains: dict[str, set[str]], connections: list[AwsDict],
                                     primary_region: str) -> list[ResourceScore]:
     """standby_domains: {standby_region: set of region-stripped domain names}."""
     evidence: dict[str, set[str]] = {}
@@ -1452,14 +1487,14 @@ def evaluate_opensearch_crossregion(domains: list[dict], tags_by_arn: dict[str, 
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_opensearch.py -v`
+Run: `uv run pytest tests/test_opensearch.py -v`
 Expected: 7 passed
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/hascore/scanners/opensearch.py tests/test_opensearch.py
-git commit -m "feat: OpenSearch multi-AZ and cross-region evaluators"
+git commit -m "feat(opensearch): add multi-AZ and cross-region evaluators"
 ```
 
 ---
@@ -1556,7 +1591,7 @@ def test_cross_region_non_windows_is_na():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_fsx.py -v`
+Run: `uv run pytest tests/test_fsx.py -v`
 Expected: FAIL — `ImportError`
 
 - [ ] **Step 3: Write `src/hascore/scanners/fsx.py`**
@@ -1565,7 +1600,7 @@ Expected: FAIL — `ImportError`
 """FSx evaluators (spec §5.5, §6): Windows type only; other types recorded N/A."""
 from __future__ import annotations
 
-from ..models import ResourceScore
+from ..models import AwsDict, ResourceScore
 from ..naming import strip_region
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption, tags_to_dict
 
@@ -1573,12 +1608,12 @@ SERVICE = "fsx"
 NAME_TAG = "Name"
 
 
-def fsx_match_value(filesystem: dict) -> str | None:
+def fsx_match_value(filesystem: AwsDict) -> str | None:
     """FSx ids are random, so the 'Name' tag is the only usable match value."""
     return tags_to_dict(filesystem.get("Tags")).get(NAME_TAG)
 
 
-def evaluate_fsx_multiaz(filesystems: list[dict], region: str) -> list[ResourceScore]:
+def evaluate_fsx_multiaz(filesystems: list[AwsDict], region: str) -> list[ResourceScore]:
     results: list[ResourceScore] = []
     for fs in filesystems:
         fsid = fs["FileSystemId"]
@@ -1599,7 +1634,7 @@ def evaluate_fsx_multiaz(filesystems: list[dict], region: str) -> list[ResourceS
     return results
 
 
-def evaluate_fsx_crossregion(filesystems: list[dict], standby_names: dict[str, set[str]],
+def evaluate_fsx_crossregion(filesystems: list[AwsDict], standby_names: dict[str, set[str]],
                              primary_region: str) -> list[ResourceScore]:
     """standby_names: {standby_region: set of region-stripped Windows FSx 'Name' tags}."""
     results: list[ResourceScore] = []
@@ -1636,14 +1671,14 @@ def evaluate_fsx_crossregion(filesystems: list[dict], standby_names: dict[str, s
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_fsx.py -v`
+Run: `uv run pytest tests/test_fsx.py -v`
 Expected: 9 passed
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/hascore/scanners/fsx.py tests/test_fsx.py
-git commit -m "feat: FSx multi-AZ and cross-region evaluators (Windows type only)"
+git commit -m "feat(fsx): add multi-AZ and cross-region evaluators for Windows"
 ```
 
 ---
@@ -1721,7 +1756,7 @@ def test_no_global_datastore_scores_0_cross_region():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_elasticache.py -v`
+Run: `uv run pytest tests/test_elasticache.py -v`
 Expected: FAIL — `ImportError`
 
 - [ ] **Step 3: Write `src/hascore/scanners/elasticache.py`**
@@ -1730,14 +1765,14 @@ Expected: FAIL — `ImportError`
 """ElastiCache evaluators (spec §5.6, §6): Redis/Valkey only; others N/A."""
 from __future__ import annotations
 
-from ..models import ResourceScore
+from ..models import AwsDict, ResourceScore
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption
 
 SERVICE = "elasticache"
 _SCORED_ENGINES = ("redis", "valkey")
 
 
-def evaluate_elasticache_multiaz(replication_groups: list[dict], cache_clusters: list[dict],
+def evaluate_elasticache_multiaz(replication_groups: list[AwsDict], cache_clusters: list[AwsDict],
                                  tags_by_arn: dict[str, dict[str, str]], region: str) -> list[ResourceScore]:
     results: list[ResourceScore] = []
     for group in replication_groups:
@@ -1769,7 +1804,7 @@ def evaluate_elasticache_multiaz(replication_groups: list[dict], cache_clusters:
     return results
 
 
-def evaluate_elasticache_crossregion(replication_groups: list[dict], cache_clusters: list[dict],
+def evaluate_elasticache_crossregion(replication_groups: list[AwsDict], cache_clusters: list[AwsDict],
                                      tags_by_arn: dict[str, dict[str, str]],
                                      primary_region: str) -> list[ResourceScore]:
     results: list[ResourceScore] = []
@@ -1797,14 +1832,14 @@ def evaluate_elasticache_crossregion(replication_groups: list[dict], cache_clust
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_elasticache.py -v`
+Run: `uv run pytest tests/test_elasticache.py -v`
 Expected: 6 passed
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/hascore/scanners/elasticache.py tests/test_elasticache.py
-git commit -m "feat: ElastiCache multi-AZ and cross-region evaluators"
+git commit -m "feat(elasticache): add multi-AZ and cross-region evaluators"
 ```
 
 ---
@@ -1897,7 +1932,7 @@ def test_type_appears_in_reason():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_elb.py -v`
+Run: `uv run pytest tests/test_elb.py -v`
 Expected: FAIL — `ImportError`
 
 - [ ] **Step 3: Write `src/hascore/scanners/elb.py`**
@@ -1911,7 +1946,7 @@ Load balancers are passed as normalized dicts:
 """
 from __future__ import annotations
 
-from ..models import ResourceScore
+from ..models import AwsDict, ResourceScore
 from ..naming import strip_region
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption
 
@@ -1919,7 +1954,7 @@ SERVICE = "elb"
 _SCORED_MULTIAZ_TYPE = "network"
 
 
-def evaluate_elb_multiaz(load_balancers: list[dict], region: str) -> list[ResourceScore]:
+def evaluate_elb_multiaz(load_balancers: list[AwsDict], region: str) -> list[ResourceScore]:
     results: list[ResourceScore] = []
     for lb in load_balancers:
         name, lb_type = lb["name"], lb["type"]
@@ -1945,7 +1980,7 @@ def evaluate_elb_multiaz(load_balancers: list[dict], region: str) -> list[Resour
     return results
 
 
-def evaluate_elb_crossregion(load_balancers: list[dict], standby_names: dict[str, set[str]],
+def evaluate_elb_crossregion(load_balancers: list[AwsDict], standby_names: dict[str, set[str]],
                              primary_region: str) -> list[ResourceScore]:
     """standby_names: {standby_region: set of region-stripped load balancer names}."""
     results: list[ResourceScore] = []
@@ -1968,14 +2003,14 @@ def evaluate_elb_crossregion(load_balancers: list[dict], standby_names: dict[str
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_elb.py -v`
+Run: `uv run pytest tests/test_elb.py -v`
 Expected: 8 passed
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/hascore/scanners/elb.py tests/test_elb.py
-git commit -m "feat: ELB multi-AZ (NLB only) and cross-region evaluators"
+git commit -m "feat(elb): add NLB multi-AZ and cross-region evaluators"
 ```
 
 ---
@@ -2037,7 +2072,7 @@ def test_multiple_standby_regions_all_listed():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_eks.py -v`
+Run: `uv run pytest tests/test_eks.py -v`
 Expected: FAIL — `ImportError`
 
 - [ ] **Step 3: Write `src/hascore/scanners/eks.py`**
@@ -2051,14 +2086,14 @@ matching must happen at the cluster level; this also covers Fargate-only cluster
 """
 from __future__ import annotations
 
-from ..models import ResourceScore
+from ..models import AwsDict, ResourceScore
 from ..naming import strip_region
 from ..tags import CROSSREGION_TAG, apply_exemption
 
 SERVICE = "eks"
 
 
-def evaluate_eks_crossregion(clusters: list[dict], standby_names: dict[str, set[str]],
+def evaluate_eks_crossregion(clusters: list[AwsDict], standby_names: dict[str, set[str]],
                              primary_region: str) -> list[ResourceScore]:
     """standby_names: {standby_region: set of region-stripped cluster names}."""
     results: list[ResourceScore] = []
@@ -2081,14 +2116,14 @@ def evaluate_eks_crossregion(clusters: list[dict], standby_names: dict[str, set[
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_eks.py -v`
+Run: `uv run pytest tests/test_eks.py -v`
 Expected: 4 passed
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/hascore/scanners/eks.py tests/test_eks.py
-git commit -m "feat: EKS cluster-level cross-region evaluator"
+git commit -m "feat(eks): add cluster-level cross-region evaluator"
 ```
 
 ---
@@ -2132,7 +2167,7 @@ def test_paginate_concatenates_pages_by_key():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `.venv/bin/pytest tests/test_aws_fetch.py -v`
+Run: `uv run pytest tests/test_aws_fetch.py -v`
 Expected: FAIL — `ImportError`
 
 - [ ] **Step 3: Write `src/hascore/scanners/aws_fetch.py`**
@@ -2142,17 +2177,19 @@ Expected: FAIL — `ImportError`
 returns plain dicts/lists that the pure evaluators consume."""
 from __future__ import annotations
 
+from typing import Any
+
 from ..tags import tags_to_dict
 
 
-def _paginate(client, op: str, result_key: str, **kwargs) -> list:
+def _paginate(client: Any, op: str, result_key: str, **kwargs: Any) -> list[Any]:
     items: list = []
     for page in client.get_paginator(op).paginate(**kwargs):
         items.extend(page.get(result_key, []))
     return items
 
 
-def fetch_rds(session, region: str) -> dict:
+def fetch_rds(session: Any, region: str) -> dict[str, Any]:
     c = session.client("rds", region_name=region)
     return {
         "instances": _paginate(c, "describe_db_instances", "DBInstances"),
@@ -2161,7 +2198,7 @@ def fetch_rds(session, region: str) -> dict:
     }
 
 
-def fetch_efs(session, region: str) -> dict:
+def fetch_efs(session: Any, region: str) -> dict[str, Any]:
     c = session.client("efs", region_name=region)
     filesystems = _paginate(c, "describe_file_systems", "FileSystems")
     mount_targets_by_fs = {
@@ -2174,15 +2211,15 @@ def fetch_efs(session, region: str) -> dict:
             "replications": replications}
 
 
-def fetch_asg(session, region: str) -> dict:
+def fetch_asg(session: Any, region: str) -> dict[str, Any]:
     c = session.client("autoscaling", region_name=region)
     return {"groups": _paginate(c, "describe_auto_scaling_groups", "AutoScalingGroups")}
 
 
-def fetch_opensearch(session, region: str) -> dict:
+def fetch_opensearch(session: Any, region: str) -> dict[str, Any]:
     c = session.client("opensearch", region_name=region)
     names = [d["DomainName"] for d in c.list_domain_names().get("DomainNames", [])]
-    domains: list[dict] = []
+    domains: list[AwsDict] = []
     for i in range(0, len(names), 5):  # DescribeDomains accepts at most 5 names
         domains.extend(c.describe_domains(DomainNames=names[i:i + 5]).get("DomainStatusList", []))
     tags_by_arn = {
@@ -2193,17 +2230,17 @@ def fetch_opensearch(session, region: str) -> dict:
     return {"domains": domains, "tags_by_arn": tags_by_arn, "connections": connections}
 
 
-def fetch_opensearch_domain_names(session, region: str) -> list[str]:
+def fetch_opensearch_domain_names(session: Any, region: str) -> list[str]:
     c = session.client("opensearch", region_name=region)
     return [d["DomainName"] for d in c.list_domain_names().get("DomainNames", [])]
 
 
-def fetch_fsx(session, region: str) -> dict:
+def fetch_fsx(session: Any, region: str) -> dict[str, Any]:
     c = session.client("fsx", region_name=region)
     return {"filesystems": _paginate(c, "describe_file_systems", "FileSystems")}
 
 
-def fetch_fsx_windows_names(session, region: str) -> list[str]:
+def fetch_fsx_windows_names(session: Any, region: str) -> list[str]:
     """'Name' tag values of Windows file systems, for cross-region name matching."""
     names = []
     for fs in fetch_fsx(session, region)["filesystems"]:
@@ -2214,7 +2251,7 @@ def fetch_fsx_windows_names(session, region: str) -> list[str]:
     return names
 
 
-def fetch_eks(session, region: str) -> dict:
+def fetch_eks(session: Any, region: str) -> dict[str, Any]:
     """EKS clusters as [{'name', 'tags'}]; tags come from DescribeCluster."""
     c = session.client("eks", region_name=region)
     names = _paginate(c, "list_clusters", "clusters")
@@ -2225,14 +2262,14 @@ def fetch_eks(session, region: str) -> dict:
     return {"clusters": clusters}
 
 
-def fetch_eks_cluster_names(session, region: str) -> list[str]:
+def fetch_eks_cluster_names(session: Any, region: str) -> list[str]:
     c = session.client("eks", region_name=region)
     return _paginate(c, "list_clusters", "clusters")
 
 
-def fetch_elb(session, region: str) -> dict:
+def fetch_elb(session: Any, region: str) -> dict[str, Any]:
     """Merge ELBv2 (ALB/NLB) and Classic ELB into [{'name', 'type', 'tags'}]."""
-    merged: list[dict] = []
+    merged: list[AwsDict] = []
 
     v2 = session.client("elbv2", region_name=region)
     lbs = _paginate(v2, "describe_load_balancers", "LoadBalancers")
@@ -2264,7 +2301,7 @@ def fetch_elb(session, region: str) -> dict:
     return {"load_balancers": merged}
 
 
-def fetch_elb_names(session, region: str) -> list[str]:
+def fetch_elb_names(session: Any, region: str) -> list[str]:
     v2 = session.client("elbv2", region_name=region)
     names = [lb["LoadBalancerName"] for lb in _paginate(v2, "describe_load_balancers", "LoadBalancers")]
     classic = session.client("elb", region_name=region)
@@ -2273,7 +2310,7 @@ def fetch_elb_names(session, region: str) -> list[str]:
     return names
 
 
-def fetch_elasticache(session, region: str) -> dict:
+def fetch_elasticache(session: Any, region: str) -> dict[str, Any]:
     c = session.client("elasticache", region_name=region)
     groups = _paginate(c, "describe_replication_groups", "ReplicationGroups")
     clusters = _paginate(c, "describe_cache_clusters", "CacheClusters")
@@ -2288,17 +2325,25 @@ def fetch_elasticache(session, region: str) -> dict:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `.venv/bin/pytest tests/test_aws_fetch.py -v`
+Run: `uv run pytest tests/test_aws_fetch.py -v`
 Expected: 1 passed
 
-- [ ] **Step 5: Append `scan()` to each service module**
+- [ ] **Step 5: Add `scan()` to each service module**
+
+Each block below shows two things: imports to add at the top of the file, and the `scan()` function to append at the bottom. **Merge the imports into the module's existing import statements** rather than duplicating them — every scanner already has a `from ..models import AwsDict, ResourceScore` line to extend. The imports must be module-level (not inside the function) so mypy can resolve the signature.
 
 Append to `src/hascore/scanners/rds.py`:
 
 ```python
-def scan(session, spec):
-    from ..models import ServiceScan
-    from .aws_fetch import fetch_rds
+# Add to the imports at the top of the file:
+from typing import Any
+
+from ..models import AccountSpec, ServiceScan
+from .aws_fetch import fetch_rds
+
+
+# Append at the end of the file:
+def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     primary = spec.regions[0]
     raw = fetch_rds(session, primary)
     out = ServiceScan()
@@ -2312,9 +2357,15 @@ def scan(session, spec):
 Append to `src/hascore/scanners/efs.py`:
 
 ```python
-def scan(session, spec):
-    from ..models import ServiceScan
-    from .aws_fetch import fetch_efs
+# Add to the imports at the top of the file:
+from typing import Any
+
+from ..models import AccountSpec, ServiceScan
+from .aws_fetch import fetch_efs
+
+
+# Append at the end of the file:
+def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     primary = spec.regions[0]
     raw = fetch_efs(session, primary)
     out = ServiceScan()
@@ -2328,9 +2379,15 @@ def scan(session, spec):
 Append to `src/hascore/scanners/asg.py`:
 
 ```python
-def scan(session, spec):
-    from ..models import ServiceScan
-    from .aws_fetch import fetch_asg
+# Add to the imports at the top of the file:
+from typing import Any
+
+from ..models import AccountSpec, ServiceScan
+from .aws_fetch import fetch_asg
+
+
+# Append at the end of the file:
+def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     primary = spec.regions[0]
     groups = fetch_asg(session, primary)["groups"]
     out = ServiceScan()
@@ -2348,9 +2405,15 @@ def scan(session, spec):
 Append to `src/hascore/scanners/opensearch.py`:
 
 ```python
-def scan(session, spec):
-    from ..models import ServiceScan
-    from .aws_fetch import fetch_opensearch, fetch_opensearch_domain_names
+# Add to the imports at the top of the file:
+from typing import Any
+
+from ..models import AccountSpec, ServiceScan
+from .aws_fetch import fetch_opensearch, fetch_opensearch_domain_names
+
+
+# Append at the end of the file:
+def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     primary = spec.regions[0]
     raw = fetch_opensearch(session, primary)
     out = ServiceScan()
@@ -2368,9 +2431,15 @@ def scan(session, spec):
 Append to `src/hascore/scanners/fsx.py`:
 
 ```python
-def scan(session, spec):
-    from ..models import ServiceNote, ServiceScan
-    from .aws_fetch import fetch_fsx, fetch_fsx_windows_names
+# Add to the imports at the top of the file:
+from typing import Any
+
+from ..models import AccountSpec, ServiceNote, ServiceScan
+from .aws_fetch import fetch_fsx, fetch_fsx_windows_names
+
+
+# Append at the end of the file:
+def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     primary = spec.regions[0]
     raw = fetch_fsx(session, primary)
     out = ServiceScan()
@@ -2391,9 +2460,15 @@ def scan(session, spec):
 Append to `src/hascore/scanners/eks.py`:
 
 ```python
-def scan(session, spec):
-    from ..models import ServiceScan
-    from .aws_fetch import fetch_eks, fetch_eks_cluster_names
+# Add to the imports at the top of the file:
+from typing import Any
+
+from ..models import AccountSpec, ServiceScan
+from .aws_fetch import fetch_eks, fetch_eks_cluster_names
+
+
+# Append at the end of the file:
+def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     primary = spec.regions[0]
     out = ServiceScan()
     if len(spec.regions) > 1:  # EKS is scored in the cross-region dimension only (spec §6)
@@ -2409,9 +2484,15 @@ def scan(session, spec):
 Append to `src/hascore/scanners/elb.py`:
 
 ```python
-def scan(session, spec):
-    from ..models import ServiceScan
-    from .aws_fetch import fetch_elb, fetch_elb_names
+# Add to the imports at the top of the file:
+from typing import Any
+
+from ..models import AccountSpec, ServiceScan
+from .aws_fetch import fetch_elb, fetch_elb_names
+
+
+# Append at the end of the file:
+def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     primary = spec.regions[0]
     raw = fetch_elb(session, primary)
     out = ServiceScan()
@@ -2428,9 +2509,15 @@ def scan(session, spec):
 Append to `src/hascore/scanners/elasticache.py`:
 
 ```python
-def scan(session, spec):
-    from ..models import ServiceScan
-    from .aws_fetch import fetch_elasticache
+# Add to the imports at the top of the file:
+from typing import Any
+
+from ..models import AccountSpec, ServiceScan
+from .aws_fetch import fetch_elasticache
+
+
+# Append at the end of the file:
+def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     primary = spec.regions[0]
     raw = fetch_elasticache(session, primary)
     out = ServiceScan()
@@ -2444,14 +2531,14 @@ def scan(session, spec):
 
 - [ ] **Step 6: Run the whole suite**
 
-Run: `.venv/bin/pytest`
+Run: `uv run pytest`
 Expected: all tests pass (no regressions from the appends)
 
 - [ ] **Step 7: Commit**
 
 ```bash
 git add src/hascore/scanners/ tests/test_aws_fetch.py
-git commit -m "feat: boto3 fetch layer and per-service scan glue"
+git commit -m "feat(scanners): add boto3 fetch layer and per-service scan glue"
 ```
 
 ---
@@ -2563,7 +2650,7 @@ def test_scanner_registry_covers_all_eight_services():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_scan_runner.py -v`
+Run: `uv run pytest tests/test_scan_runner.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'hascore.scan_runner'`
 
 - [ ] **Step 3: Write `src/hascore/scan_runner.py`**
@@ -2572,11 +2659,16 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'hascore.scan_runner'`
 """Per-account scan orchestration with strict N/A semantics (spec §8, §10)."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 from .aggregation import finalize_dimension
 from .models import AccountResult, AccountSpec, ServiceNote
 from .scanners import asg, efs, eks, elasticache, elb, fsx, opensearch, rds
+
+# Builds a boto3-compatible session from a profile name.
+SessionFactory = Callable[..., Any]
 
 SCANNERS = {
     "rds": rds.scan,
@@ -2590,12 +2682,12 @@ SCANNERS = {
 }
 
 
-def _default_session_factory(profile_name: str):
+def _default_session_factory(profile_name: str) -> Any:
     import boto3
     return boto3.Session(profile_name=profile_name)
 
 
-def scan_account(spec: AccountSpec, session_factory=None) -> AccountResult:
+def scan_account(spec: AccountSpec, session_factory: SessionFactory | None = None) -> AccountResult:
     factory = session_factory or _default_session_factory
     result = AccountResult(spec=spec)
     multi_region = len(spec.regions) > 1
@@ -2640,21 +2732,22 @@ def scan_account(spec: AccountSpec, session_factory=None) -> AccountResult:
     return result
 
 
-def scan_all(specs: list[AccountSpec], session_factory=None, workers: int = 8) -> list[AccountResult]:
+def scan_all(specs: list[AccountSpec], session_factory: SessionFactory | None = None,
+              workers: int = 8) -> list[AccountResult]:
     with ThreadPoolExecutor(max_workers=workers) as pool:
         return list(pool.map(lambda s: scan_account(s, session_factory), specs))
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_scan_runner.py -v`
+Run: `uv run pytest tests/test_scan_runner.py -v`
 Expected: 7 passed
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/hascore/scan_runner.py tests/test_scan_runner.py
-git commit -m "feat: concurrent scan runner with N/A fault tolerance"
+git commit -m "feat(runner): add concurrent scan runner with N/A fault tolerance"
 ```
 
 ---
@@ -2709,7 +2802,7 @@ def test_summary_counts_inaccessible():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_reports.py -v`
+Run: `uv run pytest tests/test_reports.py -v`
 Expected: FAIL — `ImportError`
 
 - [ ] **Step 3: Write `src/hascore/report/json_report.py`**
@@ -2720,11 +2813,12 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import datetime, timezone
+from typing import Any
 
 from ..models import AccountResult, DimensionResult
 
 
-def _dimension(dim: DimensionResult) -> dict:
+def _dimension(dim: DimensionResult) -> dict[str, Any]:
     return {
         "account_score": dim.account_score,
         "service_scores": dim.service_scores,
@@ -2734,7 +2828,7 @@ def _dimension(dim: DimensionResult) -> dict:
     }
 
 
-def _account(result: AccountResult) -> dict:
+def _account(result: AccountResult) -> dict[str, Any]:
     spec = result.spec
     return {
         "account_id": spec.account_id,
@@ -2755,7 +2849,7 @@ def _account(result: AccountResult) -> dict:
     }
 
 
-def build_report(results: list[AccountResult]) -> dict:
+def build_report(results: list[AccountResult]) -> dict[str, Any]:
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -2768,14 +2862,14 @@ def build_report(results: list[AccountResult]) -> dict:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_reports.py -v`
+Run: `uv run pytest tests/test_reports.py -v`
 Expected: 2 passed
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/hascore/report/json_report.py tests/test_reports.py
-git commit -m "feat: JSON report builder"
+git commit -m "feat(report): add JSON report builder"
 ```
 
 ---
@@ -2813,7 +2907,7 @@ def test_html_flags_inaccessible_accounts():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_reports.py -v`
+Run: `uv run pytest tests/test_reports.py -v`
 Expected: FAIL — `ImportError: cannot import name 'render_html'`
 
 - [ ] **Step 3: Write `src/hascore/report/template.html.j2`**
@@ -2910,13 +3004,14 @@ Cross-Region:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 _TEMPLATE_DIR = Path(__file__).parent
 
 
-def render_html(report: dict) -> str:
+def render_html(report: dict[str, Any]) -> str:
     env = Environment(
         loader=FileSystemLoader(_TEMPLATE_DIR),
         autoescape=select_autoescape(["html"]),
@@ -2926,14 +3021,14 @@ def render_html(report: dict) -> str:
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_reports.py -v`
+Run: `uv run pytest tests/test_reports.py -v`
 Expected: 4 passed
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add src/hascore/report/ tests/test_reports.py
-git commit -m "feat: self-contained HTML report"
+git commit -m "feat(report): add self-contained HTML report"
 ```
 
 ---
@@ -3009,7 +3104,7 @@ def test_end_to_end_produces_json_and_html(tmp_path, monkeypatch):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_cli.py -v`
+Run: `uv run pytest tests/test_cli.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'hascore.cli'`
 
 - [ ] **Step 3: Write `src/hascore/cli.py`**
@@ -3027,10 +3122,11 @@ from .input_loader import load_accounts
 from .profile_resolver import ProfileResolutionError, load_profiles, resolve_profile
 from .report.html_report import render_html
 from .report.json_report import build_report
-from .scan_runner import scan_all
+from .scan_runner import SessionFactory, scan_all
 
 
-def main(argv: list[str] | None = None, session_factory=None) -> int:
+def main(argv: list[str] | None = None,
+         session_factory: SessionFactory | None = None) -> int:
     parser = argparse.ArgumentParser(prog="hascore", description="AWS HA compliance scorer")
     parser.add_argument("input", help="path to the accounts JSON file")
     parser.add_argument("-o", "--output-dir", default="out", help="report output directory")
@@ -3074,19 +3170,19 @@ if __name__ == "__main__":
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_cli.py -v`
+Run: `uv run pytest tests/test_cli.py -v`
 Expected: 1 passed
 
 - [ ] **Step 5: Run the full suite**
 
-Run: `.venv/bin/pytest`
+Run: `uv run pytest`
 Expected: all tests pass
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add src/hascore/cli.py tests/test_cli.py
-git commit -m "feat: CLI entry point with end-to-end wiring test"
+git commit -m "feat(cli): add entry point with end-to-end wiring test"
 ```
 
 ---
