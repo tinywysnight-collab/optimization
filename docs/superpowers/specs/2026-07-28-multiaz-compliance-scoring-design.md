@@ -76,11 +76,14 @@ For each dimension (Multi-AZ, Cross-Region) independently:
 ### 5.4 OpenSearch (two items, 10 points each)
 
 - **Data plane (10)**: `ZoneAwarenessEnabled == true` → 10.
-- **Control plane (10)**: both conditions → 10:
-  - master-eligible nodes ≥3 and odd (with dedicated masters, use `DedicatedMasterCount`; without, masters run on data nodes, use `InstanceCount`);
-  - spans 3 AZs (`ZoneAwarenessConfig.AvailabilityZoneCount == 3`), so quorum survives any single-AZ failure.
+- **Control plane (10)**: the master-eligible nodes must be able to hold quorum through a single-AZ failure. Quorum is `masters // 2 + 1`, so **the count must be ≥3 and odd** — an even count tolerates no more failures than the odd number below it and risks a split vote. Which nodes count, and whether the domain's AZ spread matters, depends on the deployment:
+  - **With dedicated masters** (`DedicatedMasterEnabled`, count from `DedicatedMasterCount`): the count rule alone decides. AWS places dedicated masters across **three** AZs on its own, even when the domain selects two, so `ZoneAwarenessConfig.AvailabilityZoneCount` does not constrain them. See ["Dedicated master node distribution"](https://docs.aws.amazon.com/opensearch-service/latest/developerguide/managedomains-multiaz.html) — a 2-AZ domain with 3 dedicated masters is documented as "No downtime" during an AZ disruption.
+  - **Without dedicated masters** (count from `InstanceCount`): the data nodes hold the master role, so they follow the domain's own placement and **3 AZs are required** (`AvailabilityZoneCount == 3`).
+- **Known blind spot, deliberately not detected**: AWS's automatic three-AZ master placement does not hold when the region itself has only two AZs (e.g. `us-west-1`), or when an older-generation instance type is unavailable in three AZs. Both cases leave two masters in one AZ and one in another — a documented "50/50 chance of downtime". Neither is visible in the `DescribeDomains` response; detecting them would require an EC2 `DescribeAvailabilityZones` call plus a maintained list of legacy instance types. v1 scores the mainstream case and states the assumption in the reason text instead.
 - A domain without zone awareness necessarily has AZ count 1, so it scores 0+0 with no special-casing.
-- Example reason: "zone awareness enabled (+10); 3 dedicated masters but only 2 AZs, a single-AZ failure may lose quorum (control plane 0/10), total 10/20".
+- Example reasons:
+  - "zone awareness enabled (10/10); 3 master-eligible dedicated masters, which AWS distributes across three AZs regardless of the domain's 2 AZ(s) (10/10)" — total 20/20.
+  - "zone awareness enabled (10/10); 3 master-eligible data nodes (no dedicated masters) across 2 AZ(s) — a single-AZ failure may lose master quorum (0/10)" — total 10/20.
 
 ### 5.5 FSx (max 20, Windows type only)
 

@@ -20,19 +20,39 @@ def evaluate_opensearch_multiaz(domains: list[AwsDict], tags_by_arn: dict[str, d
         cfg = d.get("ClusterConfig", {})
         za = bool(cfg.get("ZoneAwarenessEnabled"))
         az_count = cfg.get("ZoneAwarenessConfig", {}).get("AvailabilityZoneCount", 1) if za else 1
-        if cfg.get("DedicatedMasterEnabled"):
+        dedicated = bool(cfg.get("DedicatedMasterEnabled"))
+        if dedicated:
             masters = cfg.get("DedicatedMasterCount", 0)
             master_src = "dedicated masters"
         else:
             masters = cfg.get("InstanceCount", 0)
             master_src = "data nodes (no dedicated masters)"
-        data_pts = 10 if za else 0
-        control_ok = masters >= 3 and masters % 2 == 1 and az_count == 3
+
+        # Quorum is masters // 2 + 1, so an even count buys no extra failure
+        # tolerance over the odd number below it and risks a split vote.
+        count_ok = masters >= 3 and masters % 2 == 1
+        # AWS spreads DEDICATED masters over three AZs on its own, even when the
+        # domain itself selects two, so their placement does not depend on the
+        # domain's AZ count. Without dedicated masters the data nodes hold the
+        # master role, so the domain's own AZ spread is what protects quorum.
+        placement_ok = True if dedicated else az_count == 3
+        control_ok = count_ok and placement_ok
         control_pts = 10 if control_ok else 0
+
+        data_pts = 10 if za else 0
         reason = (f"zone awareness {'enabled' if za else 'disabled'} ({data_pts}/10); "
-                  f"{masters} master-eligible {master_src} across {az_count} AZ(s)")
-        if not control_ok and za:
-            reason += " — a single-AZ failure may lose master quorum"
+                  f"{masters} master-eligible {master_src}")
+        if dedicated:
+            reason += ", which AWS distributes across three AZs regardless of the domain's "
+            reason += f"{az_count} AZ(s)"
+            if not count_ok:
+                reason += (" — an even or fewer-than-three master count cannot hold quorum"
+                           if masters % 2 == 0 and masters >= 2
+                           else " — fewer than three masters cannot hold quorum")
+        else:
+            reason += f" across {az_count} AZ(s)"
+            if not control_ok and za:
+                reason += " — a single-AZ failure may lose master quorum"
         reason += f" ({control_pts}/10)"
         score, exempted, suffix = apply_exemption(float(data_pts + control_pts), tags, MULTIAZ_TAG)
         results.append(ResourceScore(SERVICE, name, region, score, reason + suffix, exempted))

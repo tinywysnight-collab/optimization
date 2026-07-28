@@ -27,11 +27,29 @@ def test_full_marks_needs_za_and_3az_odd_masters():
     assert scores["good"].score == 20.0
 
 
-def test_za_but_2az_masters_scores_10_with_quorum_reason():
+def test_dedicated_masters_are_not_penalised_for_a_2az_domain():
+    """AWS places dedicated masters across three AZs even when the domain itself
+    selects two, so a 2-AZ domain with 3 dedicated masters keeps its quorum.
+    See "Dedicated master node distribution" in the multi-AZ documentation."""
     d = domain("half", za=True, az_count=2, dedicated=True, master_count=3)
     scores = by_id(evaluate_opensearch_multiaz([d], {}, R))
-    assert scores["half"].score == 10.0
-    assert "2 AZ" in scores["half"].reason
+    assert scores["half"].score == 20.0
+    assert "across three AZs" in scores["half"].reason
+
+
+def test_even_dedicated_master_count_fails_control_plane():
+    """Four masters need a quorum of 3; the AZ holding two of them going down
+    leaves two, which cannot elect a master."""
+    d = domain("even", za=True, az_count=3, dedicated=True, master_count=4)
+    scores = by_id(evaluate_opensearch_multiaz([d], {}, R))
+    assert scores["even"].score == 10.0
+    assert "even" in scores["even"].reason
+
+
+def test_single_dedicated_master_fails_control_plane():
+    d = domain("lonely", za=True, az_count=3, dedicated=True, master_count=1)
+    scores = by_id(evaluate_opensearch_multiaz([d], {}, R))
+    assert scores["lonely"].score == 10.0
 
 
 def test_no_za_scores_0():
@@ -43,6 +61,16 @@ def test_no_dedicated_masters_uses_data_node_count():
     d = domain("datanodes", za=True, az_count=3, instance_count=3)
     scores = by_id(evaluate_opensearch_multiaz([d], {}, R))
     assert scores["datanodes"].score == 20.0
+
+
+def test_no_dedicated_masters_still_requires_three_azs():
+    """Without dedicated masters the data nodes hold the master role, so their
+    own AZ spread decides whether quorum survives a single-AZ failure — AWS's
+    automatic three-AZ master placement does not apply here."""
+    d = domain("datanodes-2az", za=True, az_count=2, instance_count=3)
+    scores = by_id(evaluate_opensearch_multiaz([d], {}, R))
+    assert scores["datanodes-2az"].score == 10.0
+    assert "2 AZ" in scores["datanodes-2az"].reason
 
 
 def test_exemption_via_tags_by_arn():
