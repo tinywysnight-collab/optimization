@@ -1,11 +1,32 @@
-# AWS High-Availability Compliance Scoring Tool — Design
+# AWS Resilience Compliance Scoring Tool — Design
 
 Date: 2026-07-28
 Status: pending user approval
 
+## 0. Prime directive — read-only, without exception
+
+**The tool must never modify a scanned account.** No create, delete, modify,
+update, tag, start, stop, enable, disable, or any other mutating call, under any
+circumstance, for any reason — not to "fix" a finding, not to write a marker, not
+to clean up after itself. A compliance scanner runs with broad reach across an
+entire organization; the blast radius of a single accidental write is the whole
+estate. Scanning must be an action a reviewer can approve without reading the
+diff twice.
+
+This outranks every other requirement in this document. If a future feature
+cannot be built without a write call, the feature does not get built.
+
+The rule is enforced in `tests/test_read_only_guard.py`, which parses the shipped
+source and fails if any operation outside `describe_*` / `list_*` / `get_*`
+appears. Documentation alone cannot hold this line; the test can.
+
+Required permissions are correspondingly read-only: the AWS managed
+`ReadOnlyAccess` or `SecurityAudit` policy is sufficient, and nothing broader
+should ever be granted to this tool.
+
 ## 1. Goal
 
-A Python library entry point that scans a caller-supplied list of AWS accounts for high-availability compliance and returns two independent scores per account (each out of 20):
+A Python library entry point that scans a caller-supplied list of AWS accounts for resilience compliance and returns two independent scores per account (each out of 20):
 
 - **Multi-AZ score**: whether resources in the primary region have AZ-level redundancy;
 - **Cross-Region score**: whether primary-region resources have a deployment/standby in another region (only multi-region accounts are scored).

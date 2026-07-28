@@ -85,3 +85,26 @@ def test_template_is_declared_as_package_data():
     pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
     package_data = tomllib.loads(pyproject.read_text())["tool"]["setuptools"]["package-data"]
     assert any(pattern.endswith(".j2") for pattern in package_data["hascore"])
+
+
+def test_html_supports_locating_an_account():
+    """Each account gets an anchor, a jump link, and searchable row metadata so
+    a reader can find one account among hundreds without scrolling."""
+    html = render_html(build_report([make_result()]))
+    assert 'id="acct-123456789012"' in html          # anchor to jump to
+    assert 'href="#acct-123456789012"' in html       # link from the summary row
+    assert 'data-target="acct-123456789012"' in html  # row click target
+    assert 'data-search=' in html                     # filter index
+    assert 'id="q"' in html                           # the filter input
+
+
+def test_html_search_index_covers_the_fields_a_reader_would_type():
+    html = render_html(build_report([make_result()]))
+    row = next(line for line in html.splitlines() if "data-search=" in line and "123456789012" in line)
+    for term in ("123456789012", "P1", "us-east-1", "pay"):
+        assert term in row, f"{term!r} missing from the row search index"
+
+
+def test_html_title_says_resilience():
+    html = render_html(build_report([make_result()]))
+    assert "Resilience Compliance Report" in html

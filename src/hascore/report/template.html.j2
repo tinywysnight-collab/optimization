@@ -2,81 +2,295 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>AWS HA Compliance Report</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AWS Resilience Compliance Report</title>
 <style>
-  body { font-family: -apple-system, "Segoe UI", sans-serif; margin: 2rem; color: #1a1a2e; }
-  h1 { font-size: 1.5rem; } h2 { font-size: 1.2rem; margin-top: 2rem; }
-  table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; }
-  th, td { border: 1px solid #d0d0e0; padding: 0.4rem 0.6rem; text-align: left; font-size: 0.9rem; }
-  th { background: #f0f0f8; }
-  .good { background: #e6f6e6; } .bad { background: #fbe9e9; }
-  .partial { background: #fdf6e3; } .na { color: #888; }
-  .inaccessible { background: #fbe9e9; font-weight: bold; }
-  .reason { color: #444; font-size: 0.85rem; }
-  details { margin: 0.5rem 0 1.5rem; }
-  summary { cursor: pointer; font-weight: 600; padding: 0.3rem 0; }
+  :root {
+    --brand-deep:   #00405e;
+    --brand:        #00697d;
+    --brand-green:  #00794a;
+    --brand-wash:   #eef5f6;
+    --brand-line:   #cfe0e4;
+
+    --surface:      #ffffff;
+    --page:         #f4f7f8;
+    --ink:          #0d2b36;
+    --ink-2:        #4a6570;
+    --ink-muted:    #6b8792;
+
+    /* Status colours are reserved and semantic: they mark state, never brand.
+       Each is used as a border/chip beside a visible number, never alone. */
+    --good:      #0ca30c;
+    --good-bg:   #eaf7ea;
+    --partial:   #c98500;
+    --partial-bg:#fdf3e0;
+    --bad:       #d03b3b;
+    --bad-bg:    #fbeceb;
+    --na:        #9aabb2;
+    --na-bg:     #f2f5f6;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    margin: 0; background: var(--page); color: var(--ink);
+    font-size: 15px; line-height: 1.5;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 1.5rem 4rem; }
+
+  header.top {
+    background: linear-gradient(100deg, var(--brand-deep) 0%, var(--brand) 62%, var(--brand-green) 100%);
+    color: #fff; padding: 1.6rem 0 1.4rem; margin-bottom: 1.5rem;
+  }
+  header.top .wrap { padding-bottom: 0; }
+  header.top h1 { font-size: 1.35rem; margin: 0 0 .3rem; font-weight: 600; letter-spacing: .01em; }
+  header.top .meta { font-size: .85rem; opacity: .88; margin: 0; }
+
+  .tiles { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1.25rem 0 1.5rem; }
+  .tile {
+    background: var(--surface); border: 1px solid var(--brand-line);
+    border-radius: 8px; padding: .7rem 1.1rem; min-width: 120px;
+  }
+  .tile .v { font-size: 1.5rem; font-weight: 600; color: var(--brand-deep); }
+  .tile .k { font-size: .74rem; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-muted); }
+  .tile.alert .v { color: var(--bad); }
+
+  .controls { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin-bottom: .9rem; }
+  #q {
+    flex: 1 1 320px; padding: .55rem .8rem; font: inherit; font-size: .9rem;
+    border: 1px solid var(--brand-line); border-radius: 6px; background: var(--surface); color: var(--ink);
+  }
+  #q:focus { outline: 2px solid var(--brand); outline-offset: 1px; border-color: var(--brand); }
+  .hint { font-size: .8rem; color: var(--ink-muted); }
+  #count { font-size: .82rem; color: var(--ink-2); white-space: nowrap; }
+
+  h2 { font-size: 1rem; margin: 1.8rem 0 .6rem; color: var(--brand-deep);
+       text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+  h3 { font-size: .82rem; margin: 1.1rem 0 .4rem; color: var(--brand);
+       text-transform: uppercase; letter-spacing: .07em; font-weight: 600; }
+
+  table { border-collapse: collapse; width: 100%; background: var(--surface);
+          border: 1px solid var(--brand-line); border-radius: 8px; overflow: hidden; }
+  th, td { padding: .5rem .7rem; text-align: left; font-size: .87rem;
+           border-bottom: 1px solid var(--brand-line); vertical-align: top; }
+  th { background: var(--brand-wash); color: var(--brand-deep); font-weight: 600;
+       font-size: .76rem; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: none; }
+  .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.tight { white-space: nowrap; }
+
+  /* Score cells: the number carries the value, the border carries the state.
+     Colour never stands alone — see the status note in the palette above. */
+  td.score { border-left: 3px solid transparent; font-weight: 600; }
+  td.s-good    { border-left-color: var(--good);    background: var(--good-bg); }
+  td.s-partial { border-left-color: var(--partial); background: var(--partial-bg); }
+  td.s-bad     { border-left-color: var(--bad);     background: var(--bad-bg); }
+  td.s-na      { border-left-color: var(--na);      background: var(--na-bg); color: var(--ink-muted); font-weight: 500; }
+
+  tr.acct { cursor: pointer; }
+  tr.acct:hover td { background: var(--brand-wash); }
+  tr.acct:hover td.score { background: var(--brand-wash); }
+  tr.inaccessible td { background: var(--bad-bg); }
+  .jump { color: var(--brand); font-weight: 600; text-decoration: none; }
+  .jump:hover { text-decoration: underline; }
+
+  details.acct-detail {
+    background: var(--surface); border: 1px solid var(--brand-line);
+    border-radius: 8px; margin: .6rem 0; padding: 0 1rem;
+  }
+  details.acct-detail[open] { padding-bottom: 1rem; }
+  details.acct-detail > summary {
+    cursor: pointer; padding: .75rem 0; font-weight: 600; color: var(--brand-deep);
+    display: flex; flex-wrap: wrap; gap: .75rem; align-items: baseline;
+  }
+  details.acct-detail:target { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(0,105,125,.15); }
+  summary .sub { font-weight: 400; font-size: .82rem; color: var(--ink-2); }
+
+  .chip { display: inline-block; padding: .05rem .5rem; border-radius: 99px;
+          font-size: .74rem; font-weight: 600; border: 1px solid; }
+  .chip-good    { color: #0a7a0a; border-color: var(--good);    background: var(--good-bg); }
+  .chip-partial { color: #96650b; border-color: var(--partial); background: var(--partial-bg); }
+  .chip-bad     { color: #a52c2c; border-color: var(--bad);     background: var(--bad-bg); }
+  .chip-na      { color: var(--ink-muted); border-color: var(--na); background: var(--na-bg); }
+
+  .reason { color: var(--ink-2); font-size: .82rem; line-height: 1.45; }
+  .exempt { color: var(--brand); font-weight: 600; font-size: .74rem; white-space: nowrap; }
+  .note { color: var(--ink-2); font-size: .82rem; background: var(--brand-wash);
+          border-left: 3px solid var(--brand-line); padding: .45rem .7rem; margin: .5rem 0; border-radius: 0 4px 4px 0; }
+  .empty { color: var(--ink-muted); font-size: .87rem; padding: 1rem 0; }
+  .totop { display: inline-block; margin-top: .6rem; font-size: .78rem; color: var(--brand); text-decoration: none; }
+  .totop:hover { text-decoration: underline; }
+  .scroll { overflow-x: auto; }
 </style>
 </head>
 <body>
-<h1>AWS HA Compliance Report</h1>
-<p>Generated at {{ report.generated_at }} —
-{{ report.summary.total_accounts }} account(s),
-{{ report.summary.inaccessible_accounts | length }} inaccessible.</p>
 
-{% macro score_cell(value) -%}
-{% if value is none %}<td class="na">N/A</td>
-{% elif value >= 15 %}<td class="good">{{ value }}</td>
-{% elif value >= 10 %}<td class="partial">{{ value }}</td>
-{% else %}<td class="bad">{{ value }}</td>{% endif %}
-{%- endmacro %}
+{#- Score bands: >=15 good, >=10 partial, else bad. None is N/A, never a zero. -#}
+{% macro band(v) %}{% if v is none %}na{% elif v >= 15 %}good{% elif v >= 10 %}partial{% else %}bad{% endif %}{% endmacro %}
+{% macro score_cell(v) %}<td class="score s-{{ band(v) }} num">{{ "N/A" if v is none else v }}</td>{% endmacro %}
+{% macro chip(label, v) %}<span class="chip chip-{{ band(v) }}">{{ label }} {{ "N/A" if v is none else v }}/20</span>{% endmacro %}
 
-<h2>Organization summary</h2>
-<table>
-<tr><th>Account</th><th>Pattern</th><th>Regions</th><th>Application</th>
-    <th>Multi-AZ /20</th><th>Cross-Region /20</th></tr>
-{% for a in report.accounts %}
-<tr {% if not a.accessible %}class="inaccessible"{% endif %}>
-  <td>{{ a.account_id }}</td>
-  <td>{{ a.pattern_id or "" }}</td>
-  <td>{{ a.regions | join(", ") }}</td>
-  <td>{{ a.application }}</td>
-  {% if a.accessible %}{{ score_cell(a.scores.multi_az) }}{{ score_cell(a.scores.cross_region) }}
-  {% else %}<td colspan="2">INACCESSIBLE: {{ a.error }}</td>{% endif %}
-</tr>
-{% endfor %}
-</table>
+<header class="top">
+  <div class="wrap">
+    <h1>AWS Resilience Compliance Report</h1>
+    <p class="meta">Generated {{ report.generated_at }}</p>
+  </div>
+</header>
 
-<h2>Account details</h2>
-{% for a in report.accounts if a.accessible %}
-<details>
-<summary>{{ a.account_id }} — Multi-AZ:
-{{ a.scores.multi_az if a.scores.multi_az is not none else "N/A" }}/20,
-Cross-Region:
-{{ a.scores.cross_region if a.scores.cross_region is not none else "N/A" }}/20</summary>
-{% for dim_name, dim in a.dimensions.items() %}
-<h3>{{ dim_name.replace("_", "-") }}</h3>
-{% if dim.service_scores %}
-<table>
-<tr><th>Service</th><th>Dimension score /20</th></tr>
-{% for svc, sc in dim.service_scores.items() %}
-<tr><td>{{ svc }}</td>{{ score_cell(sc) }}</tr>
-{% endfor %}
-</table>
-{% endif %}
-{% if dim.resources %}
-<table>
-<tr><th>Service</th><th>Resource</th><th>Region</th><th>Score</th><th>Reason</th></tr>
-{% for r in dim.resources %}
-<tr><td>{{ r.service }}</td><td>{{ r.resource_id }}</td><td>{{ r.region }}</td>
-{{ score_cell(r.score) }}<td class="reason">{{ r.reason }}{% if r.exempted %} [EXEMPTED]{% endif %}</td></tr>
-{% endfor %}
-</table>
-{% endif %}
-{% for note in dim.notes %}
-<p class="reason">Note ({{ note.service }}): {{ note.message }}</p>
-{% endfor %}
-{% endfor %}
-</details>
-{% endfor %}
+<div class="wrap">
+
+  <div class="tiles">
+    <div class="tile"><div class="v">{{ report.summary.total_accounts }}</div><div class="k">Accounts</div></div>
+    <div class="tile {% if report.summary.inaccessible_accounts %}alert{% endif %}">
+      <div class="v">{{ report.summary.inaccessible_accounts | length }}</div><div class="k">Inaccessible</div></div>
+  </div>
+
+  <h2>Organization summary</h2>
+  <div class="controls">
+    <input id="q" type="search" placeholder="Filter by account, pattern, application or region…"
+           aria-label="Filter accounts" autocomplete="off">
+    <span id="count"></span>
+    <span class="hint">Press <kbd>/</kbd> to search · click a row to open its detail</span>
+  </div>
+
+  <div class="scroll">
+  <table id="summary">
+    <thead>
+      <tr><th>Account</th><th>Pattern</th><th>Regions</th><th>Application</th>
+          <th>Multi-AZ /20</th><th>Cross-Region /20</th><th></th></tr>
+    </thead>
+    <tbody>
+    {% for a in report.accounts %}
+      <tr class="acct{% if not a.accessible %} inaccessible{% endif %}"
+          data-target="acct-{{ a.account_id }}"
+          data-search="{{ a.account_id }} {{ a.pattern_id or '' }} {{ a.regions | join(' ') }} {{ a.application }}">
+        <td class="num"><strong>{{ a.account_id }}</strong></td>
+        <td class="tight">{{ a.pattern_id or "—" }}</td>
+        <td class="tight">{{ a.regions | join(", ") }}</td>
+        <td>{% if a.application %}{% for k, v in a.application.items() %}{{ v }}{% if not loop.last %} · {% endif %}{% endfor %}{% else %}—{% endif %}</td>
+        {% if a.accessible %}
+          {{ score_cell(a.scores.multi_az) }}{{ score_cell(a.scores.cross_region) }}
+          <td class="tight"><a class="jump" href="#acct-{{ a.account_id }}">Detail →</a></td>
+        {% else %}
+          <td colspan="2"><strong>INACCESSIBLE</strong> — {{ a.error }}</td>
+          <td></td>
+        {% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="empty" id="noresults" hidden>No account matches that filter.</p>
+
+  <h2>Account details</h2>
+  {% for a in report.accounts if a.accessible %}
+  <details class="acct-detail" id="acct-{{ a.account_id }}"
+           data-search="{{ a.account_id }} {{ a.pattern_id or '' }} {{ a.regions | join(' ') }} {{ a.application }}">
+    <summary>
+      <span class="num">{{ a.account_id }}</span>
+      {{ chip("Multi-AZ", a.scores.multi_az) }}
+      {{ chip("Cross-Region", a.scores.cross_region) }}
+      <span class="sub">{{ a.pattern_id or "" }}{% if a.pattern_id %} · {% endif %}{{ a.regions | join(", ") }}</span>
+    </summary>
+
+    {% for dim_name, dim in a.dimensions.items() %}
+    <h3>{{ dim_name.replace("_", "-") }}</h3>
+
+    {% if dim.service_scores %}
+    <div class="scroll">
+    <table>
+      <thead><tr><th>Service</th><th>Dimension score /20</th></tr></thead>
+      <tbody>
+      {% for svc, sc in dim.service_scores.items() %}
+        <tr><td>{{ svc }}</td>{{ score_cell(sc) }}</tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% endif %}
+
+    {% if dim.resources %}
+    <div class="scroll">
+    <table>
+      <thead><tr><th>Service</th><th>Resource</th><th>Region</th><th>Score</th><th>Reason</th></tr></thead>
+      <tbody>
+      {% for r in dim.resources %}
+        <tr>
+          <td>{{ r.service }}</td>
+          <td class="num">{{ r.resource_id }}</td>
+          <td class="num">{{ r.region }}</td>
+          {{ score_cell(r.score) }}
+          <td class="reason">{{ r.reason }}{% if r.exempted %} <span class="exempt">[EXEMPTED]</span>{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% endif %}
+
+    {% for note in dim.notes %}
+    <p class="note"><strong>{{ note.service }}</strong> — {{ note.message }}</p>
+    {% endfor %}
+    {% endfor %}
+
+    <a class="totop" href="#summary">↑ Back to summary</a>
+  </details>
+  {% endfor %}
+
+</div>
+
+<script>
+(function () {
+  var q = document.getElementById("q");
+  var rows = Array.prototype.slice.call(document.querySelectorAll("tr.acct"));
+  var details = Array.prototype.slice.call(document.querySelectorAll("details.acct-detail"));
+  var count = document.getElementById("count");
+  var none = document.getElementById("noresults");
+
+  function apply() {
+    var term = q.value.trim().toLowerCase();
+    var shown = 0;
+    rows.forEach(function (row) {
+      var hit = !term || row.dataset.search.toLowerCase().indexOf(term) !== -1;
+      row.hidden = !hit;
+      if (hit) shown++;
+    });
+    details.forEach(function (d) {
+      d.hidden = term && d.dataset.search.toLowerCase().indexOf(term) === -1;
+    });
+    count.textContent = shown + " of " + rows.length + " account" + (rows.length === 1 ? "" : "s");
+    none.hidden = shown !== 0;
+  }
+
+  q.addEventListener("input", apply);
+  apply();
+
+  // Clicking anywhere on a summary row opens that account's detail.
+  rows.forEach(function (row) {
+    row.addEventListener("click", function (e) {
+      if (e.target.closest("a")) return;   // let the explicit link do its own thing
+      var target = document.getElementById(row.dataset.target);
+      if (!target) return;
+      target.open = true;
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+
+  // "/" focuses the filter, Escape clears it.
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "/" && document.activeElement !== q) { e.preventDefault(); q.focus(); q.select(); }
+    else if (e.key === "Escape" && document.activeElement === q) { q.value = ""; apply(); q.blur(); }
+  });
+
+  // A deep link straight to an account should arrive with it open.
+  function openHash() {
+    if (!location.hash) return;
+    var t = document.querySelector(location.hash);
+    if (t && t.tagName === "DETAILS") t.open = true;
+  }
+  window.addEventListener("hashchange", openHash);
+  openHash();
+})();
+</script>
 </body>
 </html>
