@@ -55,3 +55,15 @@ def test_multiple_matches_raise_and_name_candidates(mapping):
     spec = AccountSpec("999999999999", ["us-east-1"])
     with pytest.raises(ProfileResolutionError, match="sandbox"):
         resolve_profile(spec, mapping)
+
+
+def test_uppercase_default_section_does_not_leak_into_other_profiles(tmp_path):
+    """An sso_account_id in configparser's magic [DEFAULT] section must not be
+    inherited by profiles that never declared it — that would resolve an account
+    to a profile for a different account, silently scanning the wrong one."""
+    cfg = tmp_path / "config"
+    cfg.write_text("[DEFAULT]\nsso_account_id = 999999999999\n\n[profile only-profile]\nregion = us-east-1\n")
+    mapping = load_profiles(cfg)
+    assert mapping == {}
+    with pytest.raises(ProfileResolutionError, match="no profile"):
+        resolve_profile(AccountSpec("999999999999", ["us-east-1"]), mapping)
