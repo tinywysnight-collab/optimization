@@ -973,7 +973,9 @@ def evaluate_rds_multiaz(instances: list[AwsDict], clusters: list[AwsDict], regi
         member_azs.discard(None)
         if len(member_azs) >= 2:
             score = 20.0
-            reason = f"Aurora cluster instances span {len(member_azs)} AZs ({', '.join(sorted(member_azs))})"
+            # The `if az is not None` filter is redundant at runtime (the discard
+            # above already removed None) but lets mypy narrow set[Any | None] to str.
+            reason = f"Aurora cluster instances span {len(member_azs)} AZs ({', '.join(sorted(az for az in member_azs if az is not None))})"
         else:
             score = 0.0
             reason = "Aurora cluster has instances in only one AZ — no cross-AZ reader instance"
