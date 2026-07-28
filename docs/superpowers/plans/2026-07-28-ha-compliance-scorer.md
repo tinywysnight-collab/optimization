@@ -471,9 +471,9 @@ from __future__ import annotations
 
 import re
 
-# AWS region token (e.g. ap-south-1) with token boundaries so substrings of
+# AWS region token (e.g. ap-south-1, us-gov-west-1) with token boundaries so substrings of
 # ordinary names (e.g. the 'eb-tier-2' inside 'web-tier-2') never match.
-_REGION = re.compile(r"(?<![a-z0-9])[a-z]{2}-[a-z]+-\d(?![0-9])")
+_REGION = re.compile(r"(?<![a-z0-9])[a-z]{2}(?:-[a-z]+)?-[a-z]+-\d(?![0-9])")
 _SEP_RUN = re.compile(r"[-_.]{2,}")
 
 
@@ -3242,3 +3242,22 @@ git commit -m "feat(cli): add entry point with end-to-end wiring test"
 | §9 JSON + HTML output | Tasks 15–16 |
 | §10 concurrency | Task 14 (`scan_all`) |
 | §11 tech choices | Task 1 |
+
+---
+
+## Post-implementation hardening
+
+Code review of the delivered implementation surfaced defects inherited from this
+plan's own reference code. Each was fixed with a regression test that failed
+first; the code is authoritative where it now differs from a task's code block.
+
+| Fix | Defect | Resolution |
+|---|---|---|
+| `naming.py` | The region pattern matched only 3-segment regions, so GovCloud/ISO regions (`us-gov-west-1`) were never stripped and their DR pairs never matched — a permanent false FAIL. | Optional middle segment added to the pattern; token-boundary lookarounds unchanged. |
+| `input_loader.py` | `{"accounts": {}}` iterated nothing and returned zero accounts, so malformed input scanned nothing and reported success. | `accounts` must be a list; otherwise `InputError`. |
+| `efs.py` | Mount targets reporting `AvailabilityZoneId` and `AvailabilityZoneName` for the same physical AZ counted as two AZs — a false 10/10 on mount-target coverage. | One field kind for the whole set, preferring IDs. |
+| `rds.py` | The Aurora reason claimed "only one AZ" even when zero member AZs resolved, misstating the evidence behind the score. | Reason branches on how many member AZs actually resolved. |
+| `elasticache.py` | Engine matching was case-sensitive, so `"Redis"` fell silently into the N/A branch with a misleading reason. | Comparison lowercased at both sites; original casing kept in the reason. |
+| `profile_resolver.py` | `configparser` propagated `sso_account_id` from a literal `[DEFAULT]` section into every profile, so an account could silently resolve to a profile for a different account. | `default_section` pointed at a sentinel that cannot appear in a real config. |
+| `aws_fetch.py` | `describe_outbound_connections` has no registered boto3 paginator; `get_paginator` would raise `OperationNotPageableError` on the first real scan. | Manual `NextToken` paging via `_collect_next_token`. |
+| `html_report.py` | `select_autoescape(["html"])` matches on filename suffix and the template ends in `.j2`, so autoescaping was off — a stored-XSS vector via reasons, tags, and resource names. | `autoescape=True` unconditionally. |
