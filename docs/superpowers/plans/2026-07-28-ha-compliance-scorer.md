@@ -2849,7 +2849,7 @@ Expected: FAIL — `ImportError`
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from ..models import AccountResult, DimensionResult
@@ -2888,7 +2888,7 @@ def _account(result: AccountResult) -> dict[str, Any]:
 
 def build_report(results: list[AccountResult]) -> dict[str, Any]:
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "summary": {
             "total_accounts": len(results),
             "inaccessible_accounts": [r.spec.account_id for r in results if not r.accessible],
