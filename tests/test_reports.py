@@ -55,3 +55,21 @@ def test_html_flags_inaccessible_accounts():
     html = render_html(build_report([bad]))
     assert "999999999999" in html
     assert "inaccessible" in html.lower()
+
+
+def test_html_escapes_untrusted_strings():
+    """Reasons, resource ids, and pass-through metadata are externally
+    influenced (AWS names, tags, input file); they must never reach the
+    HTML unescaped — autoescape must be on despite the .j2 suffix."""
+    spec = AccountSpec("123456789012", ["us-east-1"],
+                       application={"name": "<img src=x onerror=alert(1)>"})
+    result = AccountResult(spec=spec)
+    result.multi_az.resources = [ResourceScore(
+        "rds", '"><b>bold</b>', "us-east-1", 0.0, "<script>alert(1)</script>")]
+    result.multi_az.service_scores = {"rds": 0.0}
+    result.multi_az.account_score = 0.0
+    html = render_html(build_report([result]))
+    assert "<script>alert(1)</script>" not in html
+    assert "<img src=x" not in html
+    assert "<b>bold</b>" not in html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
