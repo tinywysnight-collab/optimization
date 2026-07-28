@@ -42,6 +42,11 @@ def test_standalone_redis_scores_0_member_clusters_skipped():
     assert "single node" in scores["solo"].reason.lower()
 
 
+def test_engine_match_is_case_insensitive():
+    scores = by_id(evaluate_elasticache_multiaz([], [cc("solo", engine="Redis")], {}, R))
+    assert scores["solo"].score == 0.0  # scored, not silently N/A
+
+
 def test_memcached_is_na_with_note():
     scores = by_id(evaluate_elasticache_multiaz([], [cc("mc", engine="memcached")], {}, R))
     assert scores["mc"].score is None

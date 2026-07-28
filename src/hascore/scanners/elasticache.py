@@ -31,7 +31,7 @@ def evaluate_elasticache_multiaz(replication_groups: list[AwsDict], cache_cluste
         ccid = cluster["CacheClusterId"]
         engine = cluster.get("Engine", "")
         tags = tags_by_arn.get(cluster.get("ARN", ""), {})
-        if engine in _SCORED_ENGINES:
+        if engine.lower() in _SCORED_ENGINES:
             score, exempted, suffix = apply_exemption(
                 0.0, tags, MULTIAZ_TAG)
             reason = "standalone single node, no replica" + suffix
@@ -59,7 +59,7 @@ def evaluate_elasticache_crossregion(replication_groups: list[AwsDict], cache_cl
         results.append(ResourceScore(SERVICE, rgid, primary_region, score, reason + suffix, exempted))
 
     for cluster in cache_clusters:
-        if cluster.get("ReplicationGroupId") or cluster.get("Engine", "") not in _SCORED_ENGINES:
+        if cluster.get("ReplicationGroupId") or cluster.get("Engine", "").lower() not in _SCORED_ENGINES:
             continue
         ccid = cluster["CacheClusterId"]
         tags = tags_by_arn.get(cluster.get("ARN", ""), {})
