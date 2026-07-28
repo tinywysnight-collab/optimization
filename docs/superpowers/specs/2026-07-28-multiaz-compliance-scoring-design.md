@@ -107,14 +107,16 @@ For each dimension (Multi-AZ, Cross-Region) independently:
 | ElastiCache Redis | Native API: Global Datastore membership | exists → 20 |
 | ASG | **Name-matching heuristic**: same name after region-stripping exists in a standby region | match → 20 |
 | OpenSearch | **Name-matching heuristic**: same domain name after region-stripping exists in a standby region | match → 20 |
+| ELB (ALB/NLB/Classic) | **Name-matching heuristic**: same load balancer name after region-stripping exists in a standby region | match → 20 |
 
+- **ELB participates in the cross-region dimension only**: its multi-AZ posture is not scored in v1 (see §12). Both ELBv2 (ALB/NLB) and Classic ELB are covered; the match value is the load balancer name.
 - **FSx for Windows is not scored** (no native cross-region replication; AWS Backup copies are backups, not standby; DataSync sync is invisible from the FSx API). Noted in the report.
 - Native-relation detection: a standby in *any* other region counts; if that region is not in the input `regions` list, the reason says so.
 - Name-matching scans only the standby regions declared in the input.
 
-### Name-matching rule (shared by ASG and OpenSearch)
+### Name-matching rule (shared by ASG, OpenSearch, and ELB)
 
-1. Pick the match value: for ASGs prefer the `eks:nodegroup-name` tag value (EKS managed node group ASG names carry random suffixes; comparing raw names yields false negatives), fall back to the ASG name when the tag is absent; for OpenSearch use the domain name.
+1. Pick the match value: for ASGs prefer the `eks:nodegroup-name` tag value (EKS managed node group ASG names carry random suffixes; comparing raw names yields false negatives), fall back to the ASG name when the tag is absent; for OpenSearch use the domain name; for ELB use the load balancer name.
 2. **Strip region substrings**: delete substrings matching the AWS region pattern (regex `[a-z]{2}-[a-z]+-\d`, e.g. `ap-south-1`), then collapse leftover consecutive separators (`--`, `__`, etc.) into one.
 3. **Exact match** after stripping; no fuzzy rules. A name match counts as multi-region deployment; **node counts and configuration are not compared**.
 4. The reason must state the heuristic nature, e.g. "name-matching heuristic: after region-stripping, matches ASG `myapp-nodes` in eu-west-1". For OpenSearch, if an ACTIVE cross-region connection is also detected (`DescribeOutboundConnections`), it is recorded in the reason as supporting evidence, but the verdict is based on the name match.
@@ -164,6 +166,7 @@ Core principle: **"not scanned" and "scanned and found bad" are never conflated;
 ## 12. Explicitly out of scope for v1 (YAGNI list)
 
 - Account-level exemptions (allowlist)
+- ELB multi-AZ scoring (ELB is checked in the cross-region dimension only)
 - `pattern_id` influencing scores (interface reserved)
 - OpenSearch data-plane checks (index replica counts), reading cross-cluster replication rules
 - Network topology checks beyond EFS mount targets
