@@ -59,6 +59,7 @@ For each dimension (Multi-AZ, Cross-Region) independently:
 - **The scoring unit is the primary instance / cluster**; read replicas are not scored separately (otherwise a single-AZ replica would score 0 and penalize the team that built HA).
 - Standard instance: `MultiAZ == true` → 20; or **at least one read replica in a different AZ** → 20.
 - **A same-AZ replica does not count as HA** (if the AZ dies, the replica dies with it). The reason must state this, e.g. "has 1 read replica but it shares us-east-1a with the primary; no AZ-level redundancy, score 0".
+- **A replica in another region does not count either** — promoting one is a cross-region recovery (asynchronous, manual, with an endpoint change), not AZ-level redundancy, and it is already scored in the Cross-Region dimension. RDS returns such replicas as ARNs rather than bare identifiers, so they are distinguishable. The reason must say the replica exists but sits outside the region, never "no read replicas", which would send an operator to build something they already have.
 - **Aurora**: the `MultiAZ` field is always false; instead check whether cluster member instances span ≥2 AZs → 20; single-instance cluster → 0.
 
 ### 5.2 EFS (two items, 10 points each)

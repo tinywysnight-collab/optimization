@@ -32,7 +32,11 @@ def evaluate_rds_multiaz(instances: list[AwsDict], clusters: list[AwsDict], regi
         rid = inst["DBInstanceIdentifier"]
         tags = tags_to_dict(inst.get("TagList"))
         primary_az = inst.get("AvailabilityZone")
-        local_replicas = [r for r in inst.get("ReadReplicaDBInstanceIdentifiers", []) if r in az_by_id]
+        all_replicas = inst.get("ReadReplicaDBInstanceIdentifiers", [])
+        local_replicas = [r for r in all_replicas if r in az_by_id]
+        # Replicas the region scan cannot place are in another region: RDS
+        # returns those as ARNs rather than bare identifiers.
+        remote_replicas = [r for r in all_replicas if r not in az_by_id]
         cross_az = [r for r in local_replicas if az_by_id[r] and az_by_id[r] != primary_az]
         if inst.get("MultiAZ"):
             score, reason = 20.0, "MultiAZ is enabled"
@@ -45,6 +49,12 @@ def evaluate_rds_multiaz(instances: list[AwsDict], clusters: list[AwsDict], regi
             score = 0.0
             reason = (f"MultiAZ disabled; read replica(s) {local_replicas} share the same AZ "
                       f"{primary_az} as the primary — same-AZ replicas provide no AZ-level redundancy")
+        elif remote_replicas:
+            score = 0.0
+            reason = (f"MultiAZ disabled and no read replica in {region}; the "
+                      f"{len(remote_replicas)} replica(s) outside this region cannot survive an AZ "
+                      "failure here (promoting one is a cross-region recovery, scored separately "
+                      "in the cross-region dimension)")
         else:
             score, reason = 0.0, "MultiAZ disabled and no read replicas"
         score, exempted, suffix = apply_exemption(score, tags, MULTIAZ_TAG)

@@ -117,3 +117,15 @@ def test_aurora_global_database_member_scores_20():
     scores = by_id(evaluate_rds_crossregion([], [cluster], global_clusters, R, ["us-east-1", "eu-west-1"]))
     assert scores["c1"].score == 20.0
     assert "eu-west-1" in scores["c1"].reason
+
+
+def test_replica_only_in_another_region_is_not_reported_as_no_replicas():
+    """A cross-region replica does not protect against an AZ failure in the
+    primary region, so 0 is the right score — but the reason must not claim the
+    instance has no replicas, because it does."""
+    arn = "arn:aws:rds:eu-west-1:111111111111:db:dr-replica"
+    scores = by_id(evaluate_rds_multiaz([inst("db1", replicas=[arn])], [], R))
+    assert scores["db1"].score == 0.0
+    assert "no read replicas" not in scores["db1"].reason
+    assert "outside" in scores["db1"].reason
+    assert "cross-region" in scores["db1"].reason
