@@ -53,3 +53,9 @@ def test_rejects_missing_accounts_key(tmp_path):
     path = write(tmp_path, {})
     with pytest.raises(InputError, match="accounts"):
         load_accounts(path)
+
+
+def test_rejects_accounts_that_is_not_a_list(tmp_path):
+    path = write(tmp_path, {"accounts": {}})
+    with pytest.raises(InputError, match="accounts"):
+        load_accounts(path)

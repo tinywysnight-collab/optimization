@@ -18,6 +18,8 @@ def load_accounts(path: str | Path) -> list[AccountSpec]:
     data = json.loads(Path(path).read_text())
     if not isinstance(data, dict) or "accounts" not in data:
         raise InputError("input file must be a JSON object with an 'accounts' array")
+    if not isinstance(data["accounts"], list):
+        raise InputError("'accounts' must be an array")
     specs: list[AccountSpec] = []
     for i, raw in enumerate(data["accounts"]):
         account_id = raw.get("account_id", "")
