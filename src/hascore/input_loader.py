@@ -33,13 +33,16 @@ def parse_accounts(payload: dict[str, Any]) -> list[AccountSpec]:
             application=raw.get("application") or {},
             role_name=raw.get("role_name"),
         )
-        # Fail fast: a pattern that mandates a standby but names only one region
-        # is a contradiction in the payload, not something to discover mid-scan.
-        if spec.cross_region_required and len(regions) < 2:
+        # Fail fast: the pattern names exactly one primary and one standby, so a
+        # payload that disagrees is a contradiction to surface now, not something
+        # to discover mid-scan or to paper over by ignoring the extra regions.
+        if spec.cross_region_required and len(regions) != 2:
+            missing = "only one region was given" if len(regions) < 2 else \
+                f"{len(regions)} were given"
             raise InputError(
-                f"accounts[{i}] ({account_id}): pattern '{spec.pattern_id}' requires a "
-                f"standby region ({CROSS_REGION_PATTERN}), but only one region was given: "
-                f"{regions}. Add the second region, or use a pattern without the marker."
+                f"accounts[{i}] ({account_id}): pattern '{spec.pattern_id}' carries the "
+                f"{CROSS_REGION_PATTERN} marker and so must list exactly two regions "
+                f"(primary, then standby), but {missing}: {regions}."
             )
         specs.append(spec)
     return specs

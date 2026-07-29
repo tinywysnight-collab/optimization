@@ -32,7 +32,8 @@ def test_marker_constant_is_the_documented_one():
 # --- which region is the standby ---
 
 def test_the_standby_is_the_second_region_only():
-    """Third and later regions are not standby candidates."""
+    """Defence in depth: even if a third region reached the model, only the
+    second is a standby candidate. The loader rejects such payloads outright."""
     s = spec("GS-001", regions=("ap-south-1", "ap-south-2", "eu-west-1"))
     assert s.standby_regions == ["ap-south-2"]
 
@@ -68,6 +69,24 @@ def test_gs001_with_a_second_region_parses():
         "account_id": "123456789012", "regions": ["ap-south-1", "ap-south-2"],
         "pattern_id": "GS-001"}]}
     assert parse_accounts(payload)[0].standby_regions == ["ap-south-2"]
+
+
+def test_gs001_with_a_third_region_is_rejected():
+    """The pattern names exactly one primary and one standby; a third region
+    means the payload disagrees with the pattern, so it is not silently ignored."""
+    payload = {"accounts": [{
+        "account_id": "123456789012", "pattern_id": "GS-001",
+        "regions": ["ap-south-1", "ap-south-2", "eu-west-1"]}]}
+    with pytest.raises(InputError, match="exactly two"):
+        parse_accounts(payload)
+
+
+def test_accounts_outside_the_pattern_may_list_any_number_of_regions():
+    """The two-region rule belongs to the pattern, not to every account."""
+    payload = {"accounts": [{
+        "account_id": "123456789012", "pattern_id": "PATTERN-A1",
+        "regions": ["ap-south-1", "ap-south-2", "eu-west-1"]}]}
+    assert parse_accounts(payload)[0].standby_regions == []
 
 
 def test_a_single_region_account_outside_the_pattern_is_fine():
