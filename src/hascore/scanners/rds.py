@@ -140,8 +140,9 @@ def evaluate_rds_crossregion(instances: list[AwsDict], clusters: list[AwsDict], 
                 reason = (f"Aurora Global Database has cluster(s) in {', '.join(sorted(others))}, "
                           f"but none in designated standby {standby_region}")
             else:
-                score, reason = (0.0, "not part of an Aurora Global Database reaching "
-                                 f"designated standby {standby_region}")
+                score, reason = 0.0, (
+                    "not part of an Aurora Global Database reaching "
+                    f"designated standby {standby_region}")
         else:
             replica_regions = {
                 _arn_region(replica)
@@ -158,8 +159,9 @@ def evaluate_rds_crossregion(instances: list[AwsDict], clusters: list[AwsDict], 
                           f"{', '.join(sorted(replica_regions))}, but none in designated "
                           f"standby {standby_region}")
             else:
-                score, reason = (0.0, "RDS Multi-AZ DB cluster has no cross-region read "
-                                 f"replica in designated standby {standby_region}")
+                score, reason = 0.0, (
+                    "RDS Multi-AZ DB cluster has no cross-region read "
+                    f"replica in designated standby {standby_region}")
         score, exempted, suffix = apply_exemption(score, tags, CROSSREGION_TAG)
         results.append(ResourceScore(SERVICE, cid, primary_region, score, reason + suffix, exempted))
 

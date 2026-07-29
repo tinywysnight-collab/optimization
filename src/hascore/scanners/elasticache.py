@@ -5,7 +5,7 @@ from typing import Any
 
 from ..models import AccountSpec, AwsDict, ResourceScore, ServiceScan
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption
-from .aws_fetch import fetch_elasticache
+from .aws_fetch import fetch_elasticache, fetch_elasticache_global_replication_groups
 from .common import capture_cross_region
 
 SERVICE = "elasticache"
@@ -55,14 +55,36 @@ def evaluate_elasticache_multiaz(replication_groups: list[AwsDict], cache_cluste
 def evaluate_elasticache_crossregion(replication_groups: list[AwsDict], cache_clusters: list[AwsDict],
                                      serverless_caches: list[AwsDict],
                                      tags_by_arn: dict[str, dict[str, str]],
-                                     primary_region: str) -> list[ResourceScore]:
+                                     global_replication_groups: list[AwsDict],
+                                     primary_region: str, standby_region: str) -> list[ResourceScore]:
+    member_regions_by_global_id = {
+        group["GlobalReplicationGroupId"]: {
+            member["ReplicationGroupRegion"]
+            for member in group.get("Members", [])
+            if member.get("ReplicationGroupRegion")
+        }
+        for group in global_replication_groups
+        if group.get("GlobalReplicationGroupId")
+    }
     results: list[ResourceScore] = []
     for group in replication_groups:
         rgid = group["ReplicationGroupId"]
         tags = tags_by_arn.get(group.get("ARN", ""), {})
         global_id = (group.get("GlobalReplicationGroupInfo") or {}).get("GlobalReplicationGroupId")
-        if global_id:
-            score, reason = 20.0, f"member of Global Datastore '{global_id}'"
+        member_regions = member_regions_by_global_id.get(global_id, set())
+        if global_id and standby_region in member_regions:
+            score = 20.0
+            reason = (f"member of Global Datastore '{global_id}' with a member in "
+                      f"designated standby {standby_region}")
+        elif global_id and member_regions:
+            score = 0.0
+            reason = (f"Global Datastore '{global_id}' has members in "
+                      f"{', '.join(sorted(member_regions))}, but none in designated "
+                      f"standby {standby_region}")
+        elif global_id:
+            score = 0.0
+            reason = (f"member of Global Datastore '{global_id}', but its member Regions "
+                      f"could not confirm designated standby {standby_region}")
         else:
             score, reason = 0.0, "not a member of any Global Datastore"
         score, exempted, suffix = apply_exemption(score, tags, CROSSREGION_TAG)
@@ -102,5 +124,7 @@ def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     if spec.standby_regions:
         capture_cross_region(out, lambda: evaluate_elasticache_crossregion(
             raw["replication_groups"], raw["cache_clusters"], raw["serverless_caches"],
-            raw["tags_by_arn"], primary))
+            raw["tags_by_arn"],
+            fetch_elasticache_global_replication_groups(session, primary),
+            primary, spec.standby_regions[0]))
     return out

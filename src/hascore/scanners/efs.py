@@ -55,8 +55,9 @@ def evaluate_efs_crossregion(filesystems: list[AwsDict], replications: list[AwsD
             reason = (f"EFS replication configured to {', '.join(sorted(dests))}, but not "
                       f"to designated standby {standby_region}")
         else:
-            score, reason = (0.0, "no cross-region EFS replication configuration to "
-                             f"designated standby {standby_region}")
+            score, reason = 0.0, (
+                "no cross-region EFS replication configuration to "
+                f"designated standby {standby_region}")
         score, exempted, suffix = apply_exemption(score, tags, CROSSREGION_TAG)
         results.append(ResourceScore(SERVICE, fsid, primary_region, score, reason + suffix, exempted))
     return results

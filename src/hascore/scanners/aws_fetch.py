@@ -220,3 +220,9 @@ def fetch_elasticache(session: Any, region: str) -> dict[str, Any]:
                 c.list_tags_for_resource(ResourceName=arn).get("TagList", []))
     return {"replication_groups": groups, "cache_clusters": clusters,
             "serverless_caches": serverless_caches, "tags_by_arn": tags_by_arn}
+
+
+def fetch_elasticache_global_replication_groups(session: Any, region: str) -> list[AwsDict]:
+    c = session.client("elasticache", region_name=region, config=_CLIENT_CONFIG)
+    return _paginate(
+        c, "describe_global_replication_groups", "GlobalReplicationGroups")

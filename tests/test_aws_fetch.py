@@ -7,6 +7,7 @@ from hascore.scanners.aws_fetch import (
     fetch_asg,
     fetch_efs,
     fetch_efs_replications,
+    fetch_elasticache_global_replication_groups,
     fetch_msk_cluster_names,
     fetch_opensearch,
     fetch_rds,
@@ -82,6 +83,14 @@ def test_fetch_msk_standby_names_excludes_serverless_clusters():
     session = type("S", (), {"client": lambda self, *args, **kwargs: client})()
 
     assert fetch_msk_cluster_names(session, "eu-west-1") == ["orders-eu-west-1"]
+
+
+def test_fetch_elasticache_global_replication_groups_pages_all_groups():
+    groups = [{"GlobalReplicationGroupId": "gd-1"}, {"GlobalReplicationGroupId": "gd-2"}]
+    client = FakeClient([{"GlobalReplicationGroups": groups}])
+    session = type("S", (), {"client": lambda self, *args, **kwargs: client})()
+
+    assert fetch_elasticache_global_replication_groups(session, "us-east-1") == groups
 
 
 def test_paginate_concatenates_pages_by_key():
