@@ -34,4 +34,4 @@ module = ["boto3.*", "botocore.*"]
 ignore_missing_imports = true
 
 [dependency-groups]
-dev = ["pytest>=8", "mypy>=1.11", "ruff>=0.6"]
+dev = ["pytest>=8", "pytest-cov>=6", "mypy>=1.11", "ruff>=0.6"]

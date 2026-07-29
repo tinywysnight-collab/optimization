@@ -21,7 +21,8 @@ class AccountSpec:
     account_id: str
     regions: list[str]
     pattern_id: str | None = None
-    application: dict[str, Any] = field(default_factory=dict)
+    environment: str | None = None  # display-only label, never scored
+    application: Any = field(default_factory=dict)
     role_name: str | None = None  # overrides the global role for this account
 
     @property
@@ -44,7 +45,7 @@ class AccountSpec:
 
 @dataclass
 class ResourceScore:
-    service: str          # "rds", "efs", "asg", "opensearch", "fsx", "elasticache"
+    service: str          # scanner registry key, e.g. "rds", "efs", "eks", "msk"
     resource_id: str
     region: str
     score: float | None   # 0-20; None = N/A (excluded from aggregation)
@@ -85,3 +86,4 @@ class ServiceScan:
     cross_region: list[ResourceScore] = field(default_factory=list)
     notes_multi_az: list[ServiceNote] = field(default_factory=list)
     notes_cross_region: list[ServiceNote] = field(default_factory=list)
+    cross_region_error: str | None = None

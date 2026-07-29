@@ -113,6 +113,10 @@
   .chip-bad     { color: #a52c2c; border-color: var(--bad);     background: var(--bad-bg); }
   .chip-na      { color: var(--ink-muted); border-color: var(--na); background: var(--na-bg); }
 
+  /* Environment is a label, not a state: it wears brand ink, never a status colour. */
+  .env { display: inline-block; padding: .05rem .45rem; border-radius: 4px;
+         background: var(--brand-wash); color: var(--brand-deep);
+         border: 1px solid var(--brand-line); font-size: .76rem; font-weight: 600; }
   .reason { color: var(--ink-2); font-size: .82rem; line-height: 1.45; }
   .exempt { color: var(--brand); font-weight: 600; font-size: .74rem; white-space: nowrap; }
   .note { color: var(--ink-2); font-size: .82rem; background: var(--brand-wash);
@@ -147,7 +151,7 @@
 
   <h2>Organization summary</h2>
   <div class="controls">
-    <input id="q" type="search" placeholder="Filter by account, pattern, application or region…"
+    <input id="q" type="search" placeholder="Filter by account, environment, pattern, application or region…"
            aria-label="Filter accounts" autocomplete="off">
     <span id="count"></span>
     <span class="hint">Press <kbd>/</kbd> to search · click a row to open its detail</span>
@@ -156,18 +160,19 @@
   <div class="scroll">
   <table id="summary">
     <thead>
-      <tr><th>Account</th><th>Pattern</th><th>Regions</th><th>Application</th>
+      <tr><th>Account</th><th>Environment</th><th>Pattern</th><th>Regions</th><th>Application</th>
           <th>Multi-AZ /20</th><th>Cross-Region /20</th><th></th></tr>
     </thead>
     <tbody>
     {% for a in report.accounts %}
       <tr class="acct{% if not a.accessible %} inaccessible{% endif %}"
           data-target="acct-{{ a.account_id }}"
-          data-search="{{ a.account_id }} {{ a.pattern_id or '' }} {{ a.regions | join(' ') }} {{ a.application }}">
+          data-search="{{ a.account_id }} {{ a.pattern_id or '' }} {{ a.environment or '' }} {{ a.regions | join(' ') }} {{ a.application }}">
         <td class="num"><strong>{{ a.account_id }}</strong></td>
+        <td class="tight">{% if a.environment %}<span class="env">{{ a.environment }}</span>{% else %}—{% endif %}</td>
         <td class="tight">{{ a.pattern_id or "—" }}</td>
         <td class="tight">{{ a.regions | join(", ") }}</td>
-        <td>{% if a.application %}{% for k, v in a.application.items() %}{{ v }}{% if not loop.last %} · {% endif %}{% endfor %}{% else %}—{% endif %}</td>
+        <td>{% if a.application == {} %}—{% else %}{{ a.application | tojson }}{% endif %}</td>
         {% if a.accessible %}
           {{ score_cell(a.scores.multi_az) }}{{ score_cell(a.scores.cross_region) }}
           <td class="tight"><a class="jump" href="#acct-{{ a.account_id }}">Detail →</a></td>
@@ -185,12 +190,12 @@
   <h2>Account details</h2>
   {% for a in report.accounts if a.accessible %}
   <details class="acct-detail" id="acct-{{ a.account_id }}"
-           data-search="{{ a.account_id }} {{ a.pattern_id or '' }} {{ a.regions | join(' ') }} {{ a.application }}">
+           data-search="{{ a.account_id }} {{ a.pattern_id or '' }} {{ a.environment or '' }} {{ a.regions | join(' ') }} {{ a.application }}">
     <summary>
       <span class="num">{{ a.account_id }}</span>
       {{ chip("Multi-AZ", a.scores.multi_az) }}
       {{ chip("Cross-Region", a.scores.cross_region) }}
-      <span class="sub">{{ a.pattern_id or "" }}{% if a.pattern_id %} · {% endif %}{{ a.regions | join(", ") }}</span>
+      <span class="sub">{% if a.environment %}{{ a.environment }} · {% endif %}{{ a.pattern_id or "" }}{% if a.pattern_id %} · {% endif %}{{ a.regions | join(", ") }}</span>
     </summary>
 
     {% for dim_name, dim in a.dimensions.items() %}

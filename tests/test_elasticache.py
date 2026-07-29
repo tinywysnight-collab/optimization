@@ -70,6 +70,21 @@ def test_global_datastore_member_scores_20_cross_region():
     assert "gd-xyz" in scores["rg-1"].reason
 
 
+def test_global_datastore_without_the_designated_standby_scores_0():
+    global_groups = [{
+        "GlobalReplicationGroupId": "gd-xyz",
+        "Members": [
+            {"ReplicationGroupRegion": "us-east-1"},
+            {"ReplicationGroupRegion": "ap-south-1"},
+        ],
+    }]
+    scores = by_id(evaluate_elasticache_crossregion(
+        [rg("rg-1", global_id="gd-xyz")], [], [], {}, global_groups, R, "eu-west-1"))
+    assert scores["rg-1"].score == 0.0
+    assert "ap-south-1" in scores["rg-1"].reason
+    assert "eu-west-1" in scores["rg-1"].reason
+
+
 def test_no_global_datastore_scores_0_cross_region():
     scores = by_id(evaluate_elasticache_crossregion([rg("rg-1")], [cc("solo")], [], {}, R))
     assert scores["rg-1"].score == 0.0
@@ -79,3 +94,10 @@ def test_no_global_datastore_scores_0_cross_region():
 def test_serverless_cache_is_na_cross_region():
     scores = by_id(evaluate_elasticache_crossregion([], [], [sc("sl-1")], {}, R))
     assert scores["sl-1"].score is None
+
+
+def test_memcached_is_na_and_listed_cross_region():
+    scores = by_id(evaluate_elasticache_crossregion(
+        [], [cc("mc", engine="memcached")], [], {}, R))
+    assert scores["mc"].score is None
+    assert "memcached" in scores["mc"].reason.lower()

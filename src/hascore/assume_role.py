@@ -11,7 +11,8 @@ breach the read-only prime directive in spec §0.
 """
 from __future__ import annotations
 
-from typing import Any
+from functools import lru_cache
+from typing import Any, cast
 
 from .models import AccountSpec
 
@@ -19,8 +20,15 @@ DEFAULT_ROLE_NAME = "OrganizationAccountAccessRole"
 DEFAULT_SESSION_NAME = "hascore-resilience-scan"
 
 
-def build_role_arn(account_id: str, role_name: str) -> str:
-    return f"arn:aws:iam::{account_id}:role/{role_name}"
+def build_role_arn(account_id: str, role_name: str, partition: str = "aws") -> str:
+    return f"arn:{partition}:iam::{account_id}:role/{role_name}"
+
+
+@lru_cache
+def _partition_for_region(region: str) -> str:
+    from botocore.session import Session
+
+    return cast(str, Session().get_partition_for_region(region))
 
 
 class AssumeRoleSessionFactory:
@@ -44,7 +52,8 @@ class AssumeRoleSessionFactory:
     def __call__(self, spec: AccountSpec) -> Any:
         role_name = spec.role_name or self._role_name
         params: dict[str, Any] = {
-            "RoleArn": build_role_arn(spec.account_id, role_name),
+            "RoleArn": build_role_arn(
+                spec.account_id, role_name, _partition_for_region(spec.regions[0])),
             "RoleSessionName": self._session_name,
         }
         if self._external_id:

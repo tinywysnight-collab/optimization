@@ -4,6 +4,5 @@ __pycache__/
 *.pyc
 out/
 *.egg-info/
-uv.lock
 dist/
 .coverage

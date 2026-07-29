@@ -5,7 +5,8 @@ from typing import Any
 
 from ..models import AccountSpec, AwsDict, ResourceScore, ServiceScan
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption, tags_to_dict
-from .aws_fetch import fetch_efs
+from .aws_fetch import fetch_efs, fetch_efs_replications
+from .common import capture_cross_region
 
 SERVICE = "efs"
 
@@ -33,6 +34,7 @@ def evaluate_efs_multiaz(filesystems: list[AwsDict], mount_targets_by_fs: dict[s
 
 def evaluate_efs_crossregion(filesystems: list[AwsDict], replications: list[AwsDict],
                              primary_region: str, declared_regions: list[str]) -> list[ResourceScore]:
+    standby_region = declared_regions[1]
     dest_by_fs: dict[str, set[str]] = {}
     for rep in replications:
         for dest in rep.get("Destinations", []):
@@ -45,14 +47,16 @@ def evaluate_efs_crossregion(filesystems: list[AwsDict], replications: list[AwsD
         fsid = fs["FileSystemId"]
         tags = tags_to_dict(fs.get("Tags"))
         dests = dest_by_fs.get(fsid, set())
-        if dests:
-            reg = min(dests)
-            reason = f"EFS replication configured to {', '.join(sorted(dests))}"
-            if reg not in declared_regions:
-                reason += " (region not in the declared regions list)"
+        if standby_region in dests:
+            reason = f"EFS replication configured to designated standby {standby_region}"
             score = 20.0
+        elif dests:
+            score = 0.0
+            reason = (f"EFS replication configured to {', '.join(sorted(dests))}, but not "
+                      f"to designated standby {standby_region}")
         else:
-            score, reason = 0.0, "no cross-region EFS replication configuration"
+            score, reason = (0.0, "no cross-region EFS replication configuration to "
+                             f"designated standby {standby_region}")
         score, exempted, suffix = apply_exemption(score, tags, CROSSREGION_TAG)
         results.append(ResourceScore(SERVICE, fsid, primary_region, score, reason + suffix, exempted))
     return results
@@ -64,6 +68,6 @@ def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     out = ServiceScan()
     out.multi_az = evaluate_efs_multiaz(raw["filesystems"], raw["mount_targets_by_fs"], primary)
     if spec.standby_regions:
-        out.cross_region = evaluate_efs_crossregion(
-            raw["filesystems"], raw["replications"], primary, spec.regions)
+        capture_cross_region(out, lambda: evaluate_efs_crossregion(
+            raw["filesystems"], fetch_efs_replications(session, primary), primary, spec.regions))
     return out

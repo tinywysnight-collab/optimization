@@ -6,7 +6,12 @@ from typing import Any
 from ..models import AccountSpec, AwsDict, ResourceScore, ServiceScan
 from ..naming import strip_region
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption
-from .aws_fetch import fetch_opensearch, fetch_opensearch_domain_names
+from .aws_fetch import (
+    fetch_opensearch,
+    fetch_opensearch_connections,
+    fetch_opensearch_domain_names,
+)
+from .common import capture_cross_region
 
 SERVICE = "opensearch"
 
@@ -98,10 +103,14 @@ def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     out = ServiceScan()
     out.multi_az = evaluate_opensearch_multiaz(raw["domains"], raw["tags_by_arn"], primary)
     if spec.standby_regions:
-        standby_domains = {
-            r: {strip_region(n) for n in fetch_opensearch_domain_names(session, r)}
-            for r in spec.standby_regions
-        }
-        out.cross_region = evaluate_opensearch_crossregion(
-            raw["domains"], raw["tags_by_arn"], standby_domains, raw["connections"], primary)
+        def cross_region() -> list[ResourceScore]:
+            standby_domains = {
+                r: {strip_region(n) for n in fetch_opensearch_domain_names(session, r)}
+                for r in spec.standby_regions
+            }
+            return evaluate_opensearch_crossregion(
+                raw["domains"], raw["tags_by_arn"], standby_domains,
+                fetch_opensearch_connections(session, primary), primary)
+
+        capture_cross_region(out, cross_region)
     return out

@@ -5,7 +5,8 @@ from typing import Any
 
 from ..models import AccountSpec, AwsDict, ResourceScore, ServiceScan
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption, tags_to_dict
-from .aws_fetch import fetch_rds
+from .aws_fetch import fetch_rds, fetch_rds_global_clusters
+from .common import capture_cross_region
 
 SERVICE = "rds"
 
@@ -27,8 +28,8 @@ def evaluate_rds_multiaz(instances: list[AwsDict], clusters: list[AwsDict], regi
     az_by_id = {i["DBInstanceIdentifier"]: i.get("AvailabilityZone") for i in instances}
 
     for inst in instances:
-        if _is_aurora(inst) or _is_replica(inst):
-            continue  # Aurora is scored per cluster; replicas are not scored separately
+        if inst.get("DBClusterIdentifier") or _is_aurora(inst) or _is_replica(inst):
+            continue  # DB cluster members and read replicas are scored at their primary unit
         rid = inst["DBInstanceIdentifier"]
         tags = tags_to_dict(inst.get("TagList"))
         primary_az = inst.get("AvailabilityZone")
@@ -61,20 +62,28 @@ def evaluate_rds_multiaz(instances: list[AwsDict], clusters: list[AwsDict], regi
         results.append(ResourceScore(SERVICE, rid, region, score, reason + suffix, exempted))
 
     for cluster in clusters:
+        if cluster.get("ReplicationSourceIdentifier"):
+            continue
         cid = cluster["DBClusterIdentifier"]
         tags = tags_to_dict(cluster.get("TagList"))
         member_azs = {az_by_id.get(m["DBInstanceIdentifier"]) for m in cluster.get("DBClusterMembers", [])}
         member_azs.discard(None)
-        if len(member_azs) >= 2:
+        aurora = _is_aurora(cluster)
+        cluster_type = "Aurora cluster" if aurora else "RDS Multi-AZ DB cluster"
+        configured = aurora or bool(cluster.get("MultiAZ"))
+        if configured and len(member_azs) >= 2:
             score = 20.0
-            reason = f"Aurora cluster instances span {len(member_azs)} AZs ({', '.join(sorted(az for az in member_azs if az is not None))})"
+            reason = (f"{cluster_type} instances span {len(member_azs)} AZs "
+                      f"({', '.join(sorted(az for az in member_azs if az is not None))})")
         else:
             score = 0.0
-            if len(member_azs) == 0:
+            if not configured:
+                reason = f"{cluster_type} MultiAZ is disabled"
+            elif len(member_azs) == 0:
                 reason = ("no cluster member instances with a resolvable AZ were found — "
                           "cannot confirm cross-AZ redundancy")
             else:
-                reason = "Aurora cluster has instances in only one AZ — no cross-AZ reader instance"
+                reason = f"{cluster_type} has instances in only one AZ — no cross-AZ reader instance"
         score, exempted, suffix = apply_exemption(score, tags, MULTIAZ_TAG)
         results.append(ResourceScore(SERVICE, cid, region, score, reason + suffix, exempted))
 
@@ -84,22 +93,27 @@ def evaluate_rds_multiaz(instances: list[AwsDict], clusters: list[AwsDict], regi
 def evaluate_rds_crossregion(instances: list[AwsDict], clusters: list[AwsDict], global_clusters: list[AwsDict],
                              primary_region: str, declared_regions: list[str]) -> list[ResourceScore]:
     results: list[ResourceScore] = []
+    standby_region = declared_regions[1]
 
     for inst in instances:
         if _is_aurora(inst) or _is_replica(inst):
             continue
         rid = inst["DBInstanceIdentifier"]
         tags = tags_to_dict(inst.get("TagList"))
-        cross = [r for r in inst.get("ReadReplicaDBInstanceIdentifiers", [])
-                 if r.startswith("arn:") and _arn_region(r) != primary_region]
-        if cross:
-            reg = _arn_region(cross[0])
-            reason = f"cross-region read replica exists in {reg}"
-            if reg not in declared_regions:
-                reason += " (region not in the declared regions list)"
+        replica_regions = {
+            _arn_region(replica)
+            for replica in inst.get("ReadReplicaDBInstanceIdentifiers", [])
+            if replica.startswith("arn:") and _arn_region(replica) != primary_region
+        }
+        if standby_region in replica_regions:
+            reason = f"cross-region read replica exists in designated standby {standby_region}"
             score = 20.0
+        elif replica_regions:
+            score = 0.0
+            reason = (f"cross-region read replica exists in {', '.join(sorted(replica_regions))}, "
+                      f"but none reaches designated standby {standby_region}")
         else:
-            score, reason = 0.0, "no cross-region read replica"
+            score, reason = 0.0, f"no cross-region read replica in designated standby {standby_region}"
         score, exempted, suffix = apply_exemption(score, tags, CROSSREGION_TAG)
         results.append(ResourceScore(SERVICE, rid, primary_region, score, reason + suffix, exempted))
 
@@ -111,14 +125,41 @@ def evaluate_rds_crossregion(instances: list[AwsDict], clusters: list[AwsDict], 
             other_regions_by_arn[arn] = others
 
     for cluster in clusters:
+        if cluster.get("ReplicationSourceIdentifier"):
+            continue
         cid = cluster["DBClusterIdentifier"]
         tags = tags_to_dict(cluster.get("TagList"))
-        others = other_regions_by_arn.get(cluster.get("DBClusterArn", ""), set())
-        if others:
-            score = 20.0
-            reason = f"member of an Aurora Global Database with cluster(s) in {', '.join(sorted(others))}"
+        if _is_aurora(cluster):
+            others = other_regions_by_arn.get(cluster.get("DBClusterArn", ""), set())
+            if standby_region in others:
+                score = 20.0
+                reason = (f"member of an Aurora Global Database with a cluster in "
+                          f"designated standby {standby_region}")
+            elif others:
+                score = 0.0
+                reason = (f"Aurora Global Database has cluster(s) in {', '.join(sorted(others))}, "
+                          f"but none in designated standby {standby_region}")
+            else:
+                score, reason = (0.0, "not part of an Aurora Global Database reaching "
+                                 f"designated standby {standby_region}")
         else:
-            score, reason = 0.0, "not part of an Aurora Global Database"
+            replica_regions = {
+                _arn_region(replica)
+                for replica in cluster.get("ReadReplicaIdentifiers", [])
+                if replica.startswith("arn:") and _arn_region(replica) != primary_region
+            }
+            if standby_region in replica_regions:
+                score = 20.0
+                reason = (f"RDS Multi-AZ DB cluster has a cross-region read replica in "
+                          f"designated standby {standby_region}")
+            elif replica_regions:
+                score = 0.0
+                reason = (f"RDS Multi-AZ DB cluster has cross-region read replica(s) in "
+                          f"{', '.join(sorted(replica_regions))}, but none in designated "
+                          f"standby {standby_region}")
+            else:
+                score, reason = (0.0, "RDS Multi-AZ DB cluster has no cross-region read "
+                                 f"replica in designated standby {standby_region}")
         score, exempted, suffix = apply_exemption(score, tags, CROSSREGION_TAG)
         results.append(ResourceScore(SERVICE, cid, primary_region, score, reason + suffix, exempted))
 
@@ -131,6 +172,7 @@ def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     out = ServiceScan()
     out.multi_az = evaluate_rds_multiaz(raw["instances"], raw["clusters"], primary)
     if spec.standby_regions:
-        out.cross_region = evaluate_rds_crossregion(
-            raw["instances"], raw["clusters"], raw["global_clusters"], primary, spec.regions)
+        capture_cross_region(out, lambda: evaluate_rds_crossregion(
+            raw["instances"], raw["clusters"], fetch_rds_global_clusters(session, primary),
+            primary, spec.regions))
     return out

@@ -20,17 +20,28 @@ def parse_accounts(payload: dict[str, Any]) -> list[AccountSpec]:
         raise InputError("'accounts' must be an array")
     specs: list[AccountSpec] = []
     for i, raw in enumerate(payload["accounts"]):
+        if not isinstance(raw, dict):
+            raise InputError(f"accounts[{i}] must be a mapping")
         account_id = raw.get("account_id", "")
         if not isinstance(account_id, str) or not _ACCOUNT_ID.match(account_id):
             raise InputError(f"accounts[{i}]: account_id must be a 12-digit string, got {account_id!r}")
         regions = raw.get("regions")
         if not isinstance(regions, list) or not regions or not all(isinstance(r, str) and r for r in regions):
             raise InputError(f"accounts[{i}]: regions must be a non-empty list of strings")
+        if len(set(regions)) != len(regions):
+            raise InputError(f"accounts[{i}]: primary and standby regions must be distinct")
+        pattern_id = raw.get("pattern_id")
+        if pattern_id is not None and not isinstance(pattern_id, str):
+            raise InputError(f"accounts[{i}]: pattern_id must be a string or null")
+        environment = raw.get("environment")
+        if environment is not None and not isinstance(environment, str):
+            raise InputError(f"accounts[{i}]: environment must be a string or null")
         spec = AccountSpec(
             account_id=account_id,
             regions=regions,
-            pattern_id=raw.get("pattern_id"),
-            application=raw.get("application") or {},
+            pattern_id=pattern_id,
+            environment=environment,
+            application=raw.get("application", {}),
             role_name=raw.get("role_name"),
         )
         # Fail fast: the pattern names exactly one primary and one standby, so a

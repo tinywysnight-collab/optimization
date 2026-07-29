@@ -49,6 +49,14 @@ def test_assumes_the_configured_role_in_the_target_account():
     assert session == {"session_for": "AKIAFAKE"}
 
 
+def test_role_arn_uses_the_primary_regions_partition():
+    sts = FakeSts()
+    f, _ = factory(sts, role_name="ResilienceAudit")
+    f(AccountSpec("123456789012", ["cn-north-1"]))
+    assert sts.calls[0]["RoleArn"] == \
+        "arn:aws-cn:iam::123456789012:role/ResilienceAudit"
+
+
 def test_account_can_override_the_role_name():
     """Some accounts carry a differently-named role; the payload may say so."""
     sts = FakeSts()

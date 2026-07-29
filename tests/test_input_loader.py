@@ -50,3 +50,49 @@ def test_rejects_accounts_that_is_not_a_list():
 def test_rejects_payload_that_is_not_a_mapping():
     with pytest.raises(InputError, match="accounts"):
         parse_accounts([{"account_id": "123456789012", "regions": ["us-east-1"]}])
+
+
+def test_rejects_an_account_entry_that_is_not_a_mapping():
+    with pytest.raises(InputError, match=r"accounts\[0\]"):
+        parse_accounts({"accounts": [1]})
+
+
+def test_rejects_a_non_string_pattern_id():
+    with pytest.raises(InputError, match="pattern_id"):
+        parse_accounts({"accounts": [{
+            "account_id": "123456789012",
+            "regions": ["us-east-1"],
+            "pattern_id": 1,
+        }]})
+
+
+def test_preserves_falsey_application_metadata_verbatim():
+    spec = parse_accounts({"accounts": [{
+        "account_id": "123456789012",
+        "regions": ["us-east-1"],
+        "application": [],
+    }]})[0]
+    assert spec.application == []
+
+
+def test_environment_is_parsed_and_optional():
+    with_env = parse_accounts({"accounts": [{
+        "account_id": "123456789012", "regions": ["us-east-1"], "environment": "production"}]})[0]
+    assert with_env.environment == "production"
+    without = parse_accounts({"accounts": [{
+        "account_id": "123456789012", "regions": ["us-east-1"]}]})[0]
+    assert without.environment is None
+
+
+def test_environment_must_be_a_string():
+    with pytest.raises(InputError, match="environment"):
+        parse_accounts({"accounts": [{
+            "account_id": "123456789012", "regions": ["us-east-1"], "environment": 7}]})
+
+
+def test_environment_vocabulary_is_the_callers_own():
+    """Display-only: no fixed list, no normalisation, whatever the caller sends."""
+    for value in ("production", "UAT", "dev-2", "pre-prod / dr"):
+        s = parse_accounts({"accounts": [{
+            "account_id": "123456789012", "regions": ["us-east-1"], "environment": value}]})[0]
+        assert s.environment == value

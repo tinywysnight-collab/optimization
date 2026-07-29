@@ -1,7 +1,16 @@
 import pytest
 from botocore.exceptions import ClientError
 
-from hascore.scanners.aws_fetch import _collect_next_token, _paginate, fetch_asg, fetch_efs
+from hascore.scanners.aws_fetch import (
+    _collect_next_token,
+    _paginate,
+    fetch_asg,
+    fetch_efs,
+    fetch_efs_replications,
+    fetch_msk_cluster_names,
+    fetch_opensearch,
+    fetch_rds,
+)
 
 
 class FakePaginator:
@@ -35,6 +44,44 @@ def test_clients_are_built_with_adaptive_retries():
     config = session.client_kwargs["config"]
     assert config is not None
     assert config.retries["mode"] == "adaptive"
+
+
+def test_fetch_rds_base_does_not_call_the_cross_region_only_global_api():
+    class RdsFakeClient:
+        def get_paginator(self, op):
+            if op == "describe_global_clusters":
+                raise AssertionError("base discovery must not call DescribeGlobalClusters")
+            key = "DBInstances" if op == "describe_db_instances" else "DBClusters"
+            return FakePaginator([{key: []}])
+
+    session_client = RdsFakeClient()
+    session = type("S", (), {"client": lambda self, *args, **kwargs: session_client})()
+
+    assert fetch_rds(session, "us-east-1") == {"instances": [], "clusters": []}
+
+
+def test_fetch_opensearch_base_does_not_call_outbound_connections():
+    class OpenSearchFakeClient:
+        def list_domain_names(self):
+            return {"DomainNames": []}
+
+        def describe_outbound_connections(self, **kwargs):
+            raise AssertionError("base discovery must not call cross-region connections")
+
+    session_client = OpenSearchFakeClient()
+    session = type("S", (), {"client": lambda self, *args, **kwargs: session_client})()
+
+    assert fetch_opensearch(session, "us-east-1") == {"domains": [], "tags_by_arn": {}}
+
+
+def test_fetch_msk_standby_names_excludes_serverless_clusters():
+    client = FakeClient([{"ClusterInfoList": [
+        {"ClusterName": "orders-eu-west-1", "ClusterType": "PROVISIONED"},
+        {"ClusterName": "payments-eu-west-1", "ClusterType": "SERVERLESS"},
+    ]}])
+    session = type("S", (), {"client": lambda self, *args, **kwargs: client})()
+
+    assert fetch_msk_cluster_names(session, "eu-west-1") == ["orders-eu-west-1"]
 
 
 def test_paginate_concatenates_pages_by_key():
@@ -100,9 +147,25 @@ class EfsFakeClient:
 
 def test_fetch_efs_treats_replication_not_found_as_no_replications():
     session_client = EfsFakeClient([{"FileSystemId": "fs-1"}])
-    result = fetch_efs(type("S", (), {"client": lambda self, *a, **k: session_client})(), "us-east-1")
-    assert result["replications"] == []
-    assert result["filesystems"] == [{"FileSystemId": "fs-1"}]
+    result = fetch_efs_replications(
+        type("S", (), {"client": lambda self, *args, **kwargs: session_client})(), "us-east-1")
+    assert result == []
+
+
+def test_fetch_efs_base_does_not_call_the_cross_region_only_replication_api():
+    class BaseOnlyEfsClient(EfsFakeClient):
+        def get_paginator(self, op):
+            if op == "describe_replication_configurations":
+                raise AssertionError("base discovery must not call replication APIs")
+            return super().get_paginator(op)
+
+    session_client = BaseOnlyEfsClient([{"FileSystemId": "fs-1"}])
+    session = type("S", (), {"client": lambda self, *args, **kwargs: session_client})()
+
+    assert fetch_efs(session, "us-east-1") == {
+        "filesystems": [{"FileSystemId": "fs-1"}],
+        "mount_targets_by_fs": {"fs-1": []},
+    }
 
 
 class _OtherErrorPaginator:
@@ -121,4 +184,5 @@ def test_fetch_efs_still_raises_on_other_client_errors():
 
     session_client = OtherErrorFakeClient([{"FileSystemId": "fs-1"}])
     with pytest.raises(ClientError, match="AccessDeniedException"):
-        fetch_efs(type("S", (), {"client": lambda self, *a, **k: session_client})(), "us-east-1")
+        fetch_efs_replications(
+            type("S", (), {"client": lambda self, *args, **kwargs: session_client})(), "us-east-1")

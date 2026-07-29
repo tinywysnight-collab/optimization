@@ -49,6 +49,14 @@ def test_html_contains_scores_reasons_and_metadata():
     assert "<html" in html.lower()
 
 
+def test_html_renders_non_mapping_application_metadata():
+    result = AccountResult(spec=AccountSpec(
+        "123456789012", ["us-east-1"], application=["payments", "team-x"]))
+    html = render_html(build_report([result]))
+    assert "payments" in html
+    assert "team-x" in html
+
+
 def test_html_flags_inaccessible_accounts():
     bad = AccountResult(spec=AccountSpec("999999999999", ["us-east-1"]),
                         accessible=False, error="no profile")
@@ -108,3 +116,28 @@ def test_html_search_index_covers_the_fields_a_reader_would_type():
 def test_html_title_says_resilience():
     html = render_html(build_report([make_result()]))
     assert "Resilience Compliance Report" in html
+
+
+def test_environment_reaches_both_outputs():
+    """Display-only, but it must actually be displayed: JSON carries it and the
+    HTML shows it and can be filtered by it."""
+    spec = AccountSpec("123456789012", ["us-east-1"], pattern_id="P1",
+                       application={"name": "pay"}, environment="production")
+    result = AccountResult(spec=spec)
+    result.multi_az.service_scores = {"rds": 20.0}
+    result.multi_az.account_score = 20.0
+    report = build_report([result])
+
+    assert report["accounts"][0]["environment"] == "production"
+    html = render_html(report)
+    assert "production" in html
+    row = next(line for line in html.splitlines()
+               if "data-search=" in line and "123456789012" in line)
+    assert "production" in row, "environment must be part of the row search index"
+
+
+def test_missing_environment_renders_without_a_gap():
+    spec = AccountSpec("123456789012", ["us-east-1"])
+    report = build_report([AccountResult(spec=spec)])
+    assert report["accounts"][0]["environment"] is None
+    assert "None" not in render_html(report), "a missing environment must not print None"

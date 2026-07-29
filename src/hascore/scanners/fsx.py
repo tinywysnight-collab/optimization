@@ -7,6 +7,7 @@ from ..models import AccountSpec, AwsDict, ResourceScore, ServiceNote, ServiceSc
 from ..naming import strip_region
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption, tags_to_dict
 from .aws_fetch import fetch_fsx, fetch_fsx_windows_names
+from .common import capture_cross_region
 
 SERVICE = "fsx"
 NAME_TAG = "Name"
@@ -79,12 +80,15 @@ def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     out = ServiceScan()
     out.multi_az = evaluate_fsx_multiaz(raw["filesystems"], primary)
     if spec.standby_regions:
-        standby_names = {
-            r: {strip_region(n) for n in fetch_fsx_windows_names(session, r)}
-            for r in spec.standby_regions
-        }
-        out.cross_region = evaluate_fsx_crossregion(raw["filesystems"], standby_names, primary)
-        if raw["filesystems"]:
+        def cross_region() -> list[ResourceScore]:
+            standby_names = {
+                r: {strip_region(n) for n in fetch_fsx_windows_names(session, r)}
+                for r in spec.standby_regions
+            }
+            return evaluate_fsx_crossregion(raw["filesystems"], standby_names, primary)
+
+        capture_cross_region(out, cross_region)
+        if raw["filesystems"] and not out.cross_region_error:
             out.notes_cross_region.append(ServiceNote(SERVICE, (
                 "FSx has no native cross-region replication (AWS Backup copies are backups, "
                 "not standby), so cross-region scoring uses the Name-tag matching heuristic")))

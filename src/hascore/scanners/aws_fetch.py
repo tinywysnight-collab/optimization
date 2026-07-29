@@ -39,8 +39,12 @@ def fetch_rds(session: Any, region: str) -> dict[str, Any]:
     return {
         "instances": _paginate(c, "describe_db_instances", "DBInstances"),
         "clusters": _paginate(c, "describe_db_clusters", "DBClusters"),
-        "global_clusters": _paginate(c, "describe_global_clusters", "GlobalClusters"),
     }
+
+
+def fetch_rds_global_clusters(session: Any, region: str) -> list[AwsDict]:
+    c = session.client("rds", region_name=region, config=_CLIENT_CONFIG)
+    return _paginate(c, "describe_global_clusters", "GlobalClusters")
 
 
 def fetch_efs(session: Any, region: str) -> dict[str, Any]:
@@ -51,6 +55,11 @@ def fetch_efs(session: Any, region: str) -> dict[str, Any]:
                                       FileSystemId=fs["FileSystemId"])
         for fs in filesystems
     }
+    return {"filesystems": filesystems, "mount_targets_by_fs": mount_targets_by_fs}
+
+
+def fetch_efs_replications(session: Any, region: str) -> list[AwsDict]:
+    c = session.client("efs", region_name=region, config=_CLIENT_CONFIG)
     try:
         replications = _paginate(c, "describe_replication_configurations", "Replications")
     except ClientError as exc:
@@ -61,8 +70,7 @@ def fetch_efs(session: Any, region: str) -> dict[str, Any]:
         if exc.response.get("Error", {}).get("Code") != "ReplicationNotFound":
             raise
         replications = []
-    return {"filesystems": filesystems, "mount_targets_by_fs": mount_targets_by_fs,
-            "replications": replications}
+    return replications
 
 
 def fetch_asg(session: Any, region: str) -> dict[str, Any]:
@@ -80,10 +88,14 @@ def fetch_opensearch(session: Any, region: str) -> dict[str, Any]:
         d["ARN"]: tags_to_dict(c.list_tags(ARN=d["ARN"]).get("TagList", []))
         for d in domains if d.get("ARN")
     }
+    return {"domains": domains, "tags_by_arn": tags_by_arn}
+
+
+def fetch_opensearch_connections(session: Any, region: str) -> list[AwsDict]:
+    c = session.client("opensearch", region_name=region, config=_CLIENT_CONFIG)
     # No boto3 paginator is registered for describe_outbound_connections
     # (get_paginator would raise OperationNotPageableError); page manually.
-    connections = _collect_next_token(c.describe_outbound_connections, "Connections")
-    return {"domains": domains, "tags_by_arn": tags_by_arn, "connections": connections}
+    return _collect_next_token(c.describe_outbound_connections, "Connections")
 
 
 def fetch_opensearch_domain_names(session: Any, region: str) -> list[str]:
@@ -186,7 +198,11 @@ def fetch_msk(session: Any, region: str) -> dict[str, Any]:
 
 def fetch_msk_cluster_names(session: Any, region: str) -> list[str]:
     c = session.client("kafka", region_name=region, config=_CLIENT_CONFIG)
-    return [r.get("ClusterName", "") for r in _paginate(c, "list_clusters_v2", "ClusterInfoList")]
+    return [
+        r["ClusterName"]
+        for r in _paginate(c, "list_clusters_v2", "ClusterInfoList")
+        if r.get("ClusterType") == "PROVISIONED" and r.get("ClusterName")
+    ]
 
 
 def fetch_elasticache(session: Any, region: str) -> dict[str, Any]:

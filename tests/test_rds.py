@@ -4,8 +4,9 @@ from hascore.scanners.rds import evaluate_rds_crossregion, evaluate_rds_multiaz
 R = "us-east-1"
 
 
-def inst(iid, az="us-east-1a", multi_az=False, engine="mysql", replicas=(), source=None, tags=()):
-    return {
+def inst(iid, az="us-east-1a", multi_az=False, engine="mysql", replicas=(), source=None, tags=(),
+         cluster_id=None):
+    instance = {
         "DBInstanceIdentifier": iid,
         "AvailabilityZone": az,
         "MultiAZ": multi_az,
@@ -14,6 +15,9 @@ def inst(iid, az="us-east-1a", multi_az=False, engine="mysql", replicas=(), sour
         "ReadReplicaSourceDBInstanceIdentifier": source,
         "TagList": [{"Key": k, "Value": v} for k, v in tags],
     }
+    if cluster_id:
+        instance["DBClusterIdentifier"] = cluster_id
+    return instance
 
 
 def by_id(scores):
@@ -64,14 +68,50 @@ def test_aurora_scored_at_cluster_level():
     ]
     clusters = [
         {"DBClusterIdentifier": "c-multi", "DBClusterArn": "arn:aws:rds:us-east-1:1:cluster:c-multi",
+         "Engine": "aurora-mysql",
          "DBClusterMembers": [{"DBInstanceIdentifier": "a1"}, {"DBInstanceIdentifier": "a2"}], "TagList": []},
         {"DBClusterIdentifier": "c-solo", "DBClusterArn": "arn:aws:rds:us-east-1:1:cluster:c-solo",
+         "Engine": "aurora-postgresql",
          "DBClusterMembers": [{"DBInstanceIdentifier": "solo"}], "TagList": []},
     ]
     scores = by_id(evaluate_rds_multiaz(instances, clusters, R))
     assert set(scores) == {"c-multi", "c-solo"}
     assert scores["c-multi"].score == 20.0
     assert scores["c-solo"].score == 0.0
+
+
+def test_rds_multiaz_db_cluster_is_scored_once_at_cluster_level():
+    instances = [
+        inst("writer", az="us-east-1a", cluster_id="db-cluster"),
+        inst("reader-1", az="us-east-1b", cluster_id="db-cluster"),
+        inst("reader-2", az="us-east-1c", cluster_id="db-cluster"),
+    ]
+    clusters = [{
+        "DBClusterIdentifier": "db-cluster",
+        "Engine": "mysql",
+        "MultiAZ": True,
+        "DBClusterMembers": [
+            {"DBInstanceIdentifier": "writer"},
+            {"DBInstanceIdentifier": "reader-1"},
+            {"DBInstanceIdentifier": "reader-2"},
+        ],
+        "TagList": [],
+    }]
+    scores = evaluate_rds_multiaz(instances, clusters, R)
+    assert [(score.resource_id, score.score) for score in scores] == [("db-cluster", 20.0)]
+    assert "RDS Multi-AZ DB cluster" in scores[0].reason
+
+
+def test_rds_cluster_read_replica_is_not_scored_separately():
+    cluster = {
+        "DBClusterIdentifier": "db-cluster-replica",
+        "Engine": "mysql",
+        "MultiAZ": True,
+        "ReplicationSourceIdentifier": "arn:aws:rds:eu-west-1:1:cluster:db-cluster",
+        "DBClusterMembers": [],
+        "TagList": [],
+    }
+    assert evaluate_rds_multiaz([], [cluster], R) == []
 
 
 # --- cross-region ---
@@ -84,12 +124,13 @@ def test_cross_region_replica_scores_20():
     assert "eu-west-1" in scores["db1"].reason
 
 
-def test_cross_region_replica_outside_declared_regions_is_noted():
+def test_cross_region_replica_outside_the_designated_standby_scores_0():
     arn = "arn:aws:rds:ap-south-1:111111111111:db:dr-replica"
     scores = by_id(evaluate_rds_crossregion(
         [inst("db1", replicas=[arn])], [], [], R, ["us-east-1", "eu-west-1"]))
-    assert scores["db1"].score == 20.0
-    assert "not in the declared regions" in scores["db1"].reason
+    assert scores["db1"].score == 0.0
+    assert "ap-south-1" in scores["db1"].reason
+    assert "eu-west-1" in scores["db1"].reason
 
 
 def test_no_cross_region_replica_scores_0_and_exemption_applies():
@@ -100,7 +141,7 @@ def test_no_cross_region_replica_scores_0_and_exemption_applies():
 
 def test_aurora_cluster_with_no_resolvable_members_reason_is_truthful():
     cluster = {"DBClusterIdentifier": "c-empty", "DBClusterArn": "arn:aws:rds:us-east-1:1:cluster:c-empty",
-               "DBClusterMembers": [], "TagList": []}
+               "Engine": "aurora-mysql", "DBClusterMembers": [], "TagList": []}
     scores = by_id(evaluate_rds_multiaz([], [cluster], R))
     assert scores["c-empty"].score == 0.0
     assert "only one AZ" not in scores["c-empty"].reason
@@ -109,7 +150,7 @@ def test_aurora_cluster_with_no_resolvable_members_reason_is_truthful():
 
 def test_aurora_global_database_member_scores_20():
     cluster = {"DBClusterIdentifier": "c1", "DBClusterArn": "arn:aws:rds:us-east-1:1:cluster:c1",
-               "DBClusterMembers": [], "TagList": []}
+               "Engine": "aurora-mysql", "DBClusterMembers": [], "TagList": []}
     global_clusters = [{"GlobalClusterMembers": [
         {"DBClusterArn": "arn:aws:rds:us-east-1:1:cluster:c1"},
         {"DBClusterArn": "arn:aws:rds:eu-west-1:1:cluster:c1-dr"},
@@ -117,6 +158,55 @@ def test_aurora_global_database_member_scores_20():
     scores = by_id(evaluate_rds_crossregion([], [cluster], global_clusters, R, ["us-east-1", "eu-west-1"]))
     assert scores["c1"].score == 20.0
     assert "eu-west-1" in scores["c1"].reason
+
+
+def test_aurora_global_database_without_the_designated_standby_scores_0():
+    cluster = {
+        "DBClusterIdentifier": "c1",
+        "DBClusterArn": "arn:aws:rds:us-east-1:1:cluster:c1",
+        "Engine": "aurora-mysql",
+        "DBClusterMembers": [],
+        "TagList": [],
+    }
+    global_clusters = [{"GlobalClusterMembers": [
+        {"DBClusterArn": "arn:aws:rds:us-east-1:1:cluster:c1"},
+        {"DBClusterArn": "arn:aws:rds:ap-south-1:1:cluster:c1-dr"},
+    ]}]
+    scores = by_id(evaluate_rds_crossregion(
+        [], [cluster], global_clusters, R, ["us-east-1", "eu-west-1"]))
+    assert scores["c1"].score == 0.0
+    assert "ap-south-1" in scores["c1"].reason
+    assert "eu-west-1" in scores["c1"].reason
+
+
+def test_rds_multiaz_db_cluster_cross_region_replica_scores_20():
+    cluster = {
+        "DBClusterIdentifier": "db-cluster",
+        "DBClusterArn": "arn:aws:rds:us-east-1:1:cluster:db-cluster",
+        "Engine": "mysql",
+        "ReadReplicaIdentifiers": ["arn:aws:rds:eu-west-1:1:cluster:db-cluster-dr"],
+        "TagList": [],
+    }
+    scores = by_id(evaluate_rds_crossregion(
+        [], [cluster], [], R, ["us-east-1", "eu-west-1"]))
+    assert scores["db-cluster"].score == 20.0
+    assert "eu-west-1" in scores["db-cluster"].reason
+    assert "Aurora" not in scores["db-cluster"].reason
+
+
+def test_rds_multiaz_db_cluster_replica_outside_designated_standby_scores_0():
+    cluster = {
+        "DBClusterIdentifier": "db-cluster",
+        "DBClusterArn": "arn:aws:rds:us-east-1:1:cluster:db-cluster",
+        "Engine": "mysql",
+        "ReadReplicaIdentifiers": ["arn:aws:rds:ap-south-1:1:cluster:db-cluster-dr"],
+        "TagList": [],
+    }
+    scores = by_id(evaluate_rds_crossregion(
+        [], [cluster], [], R, ["us-east-1", "eu-west-1"]))
+    assert scores["db-cluster"].score == 0.0
+    assert "ap-south-1" in scores["db-cluster"].reason
+    assert "eu-west-1" in scores["db-cluster"].reason
 
 
 def test_replica_only_in_another_region_is_not_reported_as_no_replicas():

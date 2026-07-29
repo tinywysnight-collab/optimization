@@ -49,6 +49,15 @@ def test_cross_region_replication_scores_20():
     assert "eu-west-1" in scores["fs-1"].reason
 
 
+def test_replication_outside_the_designated_standby_scores_0():
+    reps = [{"SourceFileSystemId": "fs-1", "Destinations": [{"Region": "ap-south-1"}]}]
+    scores = by_id(evaluate_efs_crossregion(
+        [fs("fs-1")], reps, R, ["us-east-1", "eu-west-1"]))
+    assert scores["fs-1"].score == 0.0
+    assert "ap-south-1" in scores["fs-1"].reason
+    assert "eu-west-1" in scores["fs-1"].reason
+
+
 def test_same_region_replication_does_not_count():
     reps = [{"SourceFileSystemId": "fs-1", "Destinations": [{"Region": "us-east-1"}]}]
     scores = by_id(evaluate_efs_crossregion([fs("fs-1")], reps, R, ["us-east-1", "eu-west-1"]))

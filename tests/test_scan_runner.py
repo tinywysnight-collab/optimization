@@ -1,5 +1,6 @@
 from hascore.models import AccountSpec, ResourceScore, ServiceScan
 from hascore.scan_runner import SCANNERS, scan_account, scan_all
+from hascore.scanners import asg
 
 
 class FakeStsClient:
@@ -65,6 +66,30 @@ def test_service_failure_is_na_and_other_services_still_scored(monkeypatch):
     assert result.multi_az.account_score == 20.0  # fsx N/A, not 0
     assert "fsx" in result.multi_az.failed_services
     assert any("AccessDenied" in n.message for n in result.multi_az.notes)
+
+
+def test_standby_failure_preserves_the_services_multiaz_result(monkeypatch):
+    group = {
+        "AutoScalingGroupName": "api-us-east-1",
+        "AvailabilityZones": ["us-east-1a", "us-east-1b"],
+        "Tags": [],
+    }
+
+    def fetch(session, region):
+        if region == "eu-west-1":
+            raise RuntimeError("AccessDenied in standby")
+        return {"groups": [group]}
+
+    monkeypatch.setattr(asg, "fetch_asg", fetch)
+    patch_scanners(monkeypatch, {"asg": asg.scan})
+
+    result = scan_account(spec(), session_factory=fake_factory)
+
+    assert result.multi_az.account_score == 20.0
+    assert "asg" not in result.multi_az.failed_services
+    assert result.cross_region.account_score is None
+    assert result.cross_region.failed_services == ["asg"]
+    assert any("AccessDenied in standby" in note.message for note in result.cross_region.notes)
 
 
 def test_account_outside_the_gs001_pattern_has_cross_region_na(monkeypatch):

@@ -57,6 +57,11 @@ def scan_account(spec: AccountSpec, session_factory: SessionFactory) -> AccountR
         result.multi_az.notes.extend(svc.notes_multi_az)
         result.cross_region.resources.extend(svc.cross_region)
         result.cross_region.notes.extend(svc.notes_cross_region)
+        if svc.cross_region_error:
+            result.cross_region.notes.append(ServiceNote(
+                name, f"scan failed: {svc.cross_region_error}; "
+                      "dimension recorded N/A for this service"))
+            result.cross_region.failed_services.append(name)
 
     finalize_dimension(result.multi_az)
     if cross_region_scored:

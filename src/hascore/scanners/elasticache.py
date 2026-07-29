@@ -6,6 +6,7 @@ from typing import Any
 from ..models import AccountSpec, AwsDict, ResourceScore, ServiceScan
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption
 from .aws_fetch import fetch_elasticache
+from .common import capture_cross_region
 
 SERVICE = "elasticache"
 _SCORED_ENGINES = ("redis", "valkey")
@@ -68,9 +69,15 @@ def evaluate_elasticache_crossregion(replication_groups: list[AwsDict], cache_cl
         results.append(ResourceScore(SERVICE, rgid, primary_region, score, reason + suffix, exempted))
 
     for cluster in cache_clusters:
-        if cluster.get("ReplicationGroupId") or cluster.get("Engine", "").lower() not in _SCORED_ENGINES:
+        if cluster.get("ReplicationGroupId"):
             continue
         ccid = cluster["CacheClusterId"]
+        engine = cluster.get("Engine", "")
+        if engine.lower() not in _SCORED_ENGINES:
+            reason = (f"engine '{engine}' has no Global Datastore mechanism; out of "
+                      "Cross-Region scoring scope, recorded N/A")
+            results.append(ResourceScore(SERVICE, ccid, primary_region, None, reason))
+            continue
         tags = tags_by_arn.get(cluster.get("ARN", ""), {})
         score, exempted, suffix = apply_exemption(0.0, tags, CROSSREGION_TAG)
         reason = "standalone single node, not part of any Global Datastore" + suffix
@@ -93,7 +100,7 @@ def scan(session: Any, spec: AccountSpec) -> ServiceScan:
         raw["replication_groups"], raw["cache_clusters"], raw["serverless_caches"],
         raw["tags_by_arn"], primary)
     if spec.standby_regions:
-        out.cross_region = evaluate_elasticache_crossregion(
+        capture_cross_region(out, lambda: evaluate_elasticache_crossregion(
             raw["replication_groups"], raw["cache_clusters"], raw["serverless_caches"],
-            raw["tags_by_arn"], primary)
+            raw["tags_by_arn"], primary))
     return out

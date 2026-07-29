@@ -71,6 +71,14 @@ def test_gs001_with_a_second_region_parses():
     assert parse_accounts(payload)[0].standby_regions == ["ap-south-2"]
 
 
+def test_gs001_rejects_the_primary_region_as_its_own_standby():
+    payload = {"accounts": [{
+        "account_id": "123456789012", "regions": ["ap-south-1", "ap-south-1"],
+        "pattern_id": "GS-001"}]}
+    with pytest.raises(InputError, match="distinct"):
+        parse_accounts(payload)
+
+
 def test_gs001_with_a_third_region_is_rejected():
     """The pattern names exactly one primary and one standby; a third region
     means the payload disagrees with the pattern, so it is not silently ignored."""

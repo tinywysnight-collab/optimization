@@ -47,6 +47,7 @@ The caller passes the account list in as a payload (a mapping, shown here as JSO
     {
       "account_id": "123456789012",
       "pattern_id": "PATTERN-A1",
+      "environment": "production",
       "regions": ["us-east-1", "eu-west-1"],
       "application": { "name": "payment-service", "owner": "team-x" },
       "role_name": "optional: overrides the role assumed in this account"
@@ -55,11 +56,13 @@ The caller passes the account list in as a payload (a mapping, shown here as JSO
 }
 ```
 
-- The payload must be a mapping whose `accounts` is an **array** — a malformed `{"accounts": {}}` raises `InputError` rather than silently scanning zero accounts.
+- The payload must be a mapping whose `accounts` is an **array of mappings** — malformed containers or account entries raise `InputError` rather than leaking `AttributeError` or silently scanning zero accounts.
 - `regions[0]` is the **primary region**: Multi-AZ scoring scans the primary region only.
 - `regions[1]` is the **standby region**, used only by the Cross-Region dimension and only for accounts in its scope (§6).
-- An account whose `pattern_id` carries the Cross-Region marker must list **exactly two regions** — primary, then standby. Both one region and three or more are **rejected at parse time**: the pattern names one primary and one standby, so a payload that disagrees is a contradiction to surface immediately rather than paper over by ignoring the extras, and failing fast beats discovering it after scanning hundreds of accounts. Accounts outside the pattern may list any number of regions.
-- `pattern_id` and `application` are **free-schema, pass-through only**: the program does not validate or interpret them; they are copied verbatim into the output. The scoring rule engine keeps a clean interface to account metadata so pattern rules can influence scoring later (out of scope for v1).
+- Region values must be non-empty strings and must be **unique** within an account. An account whose `pattern_id` carries the Cross-Region marker must list **exactly two distinct regions** — primary, then standby. One region, a duplicated region, and three or more regions are **rejected at parse time**: the pattern names one primary and one standby, so a payload that disagrees is a contradiction to surface immediately rather than paper over by ignoring the extras, and failing fast beats discovering it after scanning hundreds of accounts. Accounts outside the pattern may list any number of distinct regions.
+- `pattern_id` is an optional string. It is copied into the output and the `GS-001` marker determines Cross-Region scope (§6); any other content is uninterpreted.
+- `application` is optional arbitrary JSON metadata. It is copied **verbatim** into JSON output and rendered safely in HTML; when omitted it defaults to an empty mapping.
+- `environment` is an optional string (`production`, `uat`, `dev`, whatever the caller uses) shown in the report so a reader can tell which estate a row belongs to. It is **display-only**: uninterpreted, never scored, and never a scope gate. Values are not validated against a fixed list — the caller owns the vocabulary.
 
 ## 3. Access model — one master identity, a role assumed per account
 
@@ -77,6 +80,11 @@ The caller passes the account list in as a payload (a mapping, shown here as JSO
   so the assumed sessions are identifiable in CloudTrail.
 - The role must exist in each account and trust the master identity. It needs
   **read-only** permissions: `ReadOnlyAccess` or `SecurityAudit` is sufficient.
+- The target role ARN uses the AWS partition resolved from the account's primary
+  Region (`aws`, `aws-cn`, `aws-us-gov`, ISO partitions, ...); it is never
+  hard-coded to `arn:aws`. Because STS delegation cannot cross partitions, every
+  account in one invocation must be reachable from the supplied master identity
+  in its own partition; otherwise that account is reported inaccessible.
 - **`sts:AssumeRole` vends temporary credentials and modifies nothing**, so it
   does not breach the prime directive in §0. The read-only guard lists it as an
   explicit, reviewed exemption alongside `sts:GetCallerIdentity`.
@@ -109,6 +117,12 @@ For each dimension (Multi-AZ, Cross-Region) independently:
 - **A same-AZ replica does not count as HA** (if the AZ dies, the replica dies with it). The reason must state this, e.g. "has 1 read replica but it shares us-east-1a with the primary; no AZ-level redundancy, score 0".
 - **A replica in another region does not count either** — promoting one is a cross-region recovery (asynchronous, manual, with an endpoint change), not AZ-level redundancy, and it is already scored in the Cross-Region dimension. RDS returns such replicas as ARNs rather than bare identifiers, so they are distinguishable. The reason must say the replica exists but sits outside the region, never "no read replicas", which would send an operator to build something they already have.
 - **Aurora**: the `MultiAZ` field is always false; instead check whether cluster member instances span ≥2 AZs → 20; single-instance cluster → 0.
+- **RDS Multi-AZ DB cluster**: `DescribeDBClusters` returns these non-Aurora
+  MySQL/PostgreSQL clusters alongside Aurora. Score the cluster once, never its
+  member instances: `MultiAZ == true` and member instances resolved across ≥2 AZs
+  → 20; otherwise → 0 with the missing condition named. A cluster whose
+  `ReplicationSourceIdentifier` is set is a read replica and is not scored
+  separately.
 
 ### 5.2 EFS (two items, 10 points each)
 
@@ -198,9 +212,9 @@ the subnet count is the AZ count (`ZoneIds` wins when present):
 
 | Service | Detection | Full score condition |
 |---|---|---|
-| RDS | Native API: cross-region read replica (replica ARN in another region) / Aurora Global Database | exists → 20 |
-| EFS | Native API: replication configuration targeting another region (`DescribeReplicationConfigurations` raises `ReplicationNotFound` — rather than returning an empty list — when the region has no replication configs at all; that is "no replications", never a scan failure) | exists → 20 |
-| ElastiCache Redis | Native API: Global Datastore membership | exists → 20 |
+| RDS | Native API: cross-region read replica / Aurora Global Database | relation reaches `regions[1]` → 20 |
+| EFS | Native API: replication configuration (`DescribeReplicationConfigurations` raises `ReplicationNotFound` — rather than returning an empty list — when the region has no replication configs at all; that is "no replications", never a scan failure) | destination is `regions[1]` → 20 |
+| ElastiCache Redis | Native API: Global Datastore membership and member Regions | datastore has a member in `regions[1]` → 20 |
 | ASG (non-EKS only) | **Name-matching heuristic**: same name after region-stripping exists in a standby region | match → 20 |
 | EKS | **Name-matching heuristic**: same cluster name after region-stripping exists in a standby region (via `ListClusters`) | match → 20 |
 | OpenSearch | **Name-matching heuristic**: same domain name after region-stripping exists in a standby region | match → 20 |
@@ -208,17 +222,27 @@ the subnet count is the AZ count (`ZoneIds` wins when present):
 | MSK (provisioned) | **Name-matching heuristic**: same cluster name after region-stripping exists in a standby region (this estate does not use MSK Replicator; if it ever does, `ListReplicators` offers a native upgrade path) | match → 20 |
 | FSx for Windows | **Name-matching heuristic**: same `Name` tag after region-stripping exists on a Windows file system in a standby region | match → 20 |
 
+- **RDS distinguishes its two cluster families**: Aurora clusters use Global
+  Database membership; non-Aurora RDS Multi-AZ DB clusters use
+  `ReadReplicaIdentifiers`, just as standard DB instances do. A cluster or
+  instance whose replication-source field is set is a replica and is not scored
+  as another primary resource.
 - **EKS is judged at the cluster level, directly through the EKS API**, and forms its own service dimension. Node-group ASGs are *excluded* from the ASG cross-region scoring (they remain scored in the Multi-AZ dimension) for three reasons: managed node-group ASG names are AWS-generated random strings (`eks-40bbb26b-…`) that can never match across regions; node-group names are commonly generic (`default`, `spot`, `system`) and would produce false positives against unrelated clusters in a standby region; and a cluster with four node groups would otherwise carry four times the weight of a single-node-group cluster. Cluster-level matching also covers Fargate-only clusters, which have no ASG at all. Exemption tags are read from the cluster's own tags.
 - **ELB cross-region scoring covers all load balancer types** (ALB, NLB, Classic), unlike the Multi-AZ dimension which scores NLB only (§5.7) — a missing DR copy is a real gap regardless of load balancer type. The match value is the load balancer name.
 - **FSx for Windows** has no native cross-region replication (AWS Backup copies are backups, not standby; DataSync sync is invisible from the FSx API), so it is scored with the name-matching heuristic over the **`Name` tag** (file system ids are random, so the tag is the only usable match value). A Windows file system **without a `Name` tag scores 0** with a reason explaining there is no name to match on — N/A would let untagged resources escape scoring. Other FSx types remain N/A.
-- Native-relation detection: a standby in *any* other region counts; if that region is not in the input `regions` list, the reason says so.
+- Native-relation detection obeys the same designated-standby rule as name
+  matching: only a relation reaching **`regions[1]`** counts. A replica or Global
+  Datastore member in another Region may be reported as diagnostic context, but
+  it does not satisfy the GS-001 requirement and scores 0.
 - Name-matching scans only the standby regions declared in the input.
 
 ### Name-matching rule (shared by ASG, EKS, OpenSearch, ELB, MSK, and FSx for Windows)
 
-1. Pick the match value: ASG → the ASG name (EKS node-group ASGs, identified by the `eks:cluster-name` tag, are skipped entirely); EKS → the cluster name; OpenSearch → the domain name; ELB → the load balancer name; FSx for Windows → the `Name` tag.
+1. Pick the match value: ASG → the ASG name (EKS node-group ASGs, identified by the `eks:cluster-name` tag, are skipped entirely); EKS → the cluster name; OpenSearch → the domain name; ELB → the load balancer name; MSK → the cluster name; FSx for Windows → the `Name` tag. A type-scoped primary can match only the same scored type: in particular, a provisioned MSK cluster cannot match an MSK Serverless cluster.
 2. **Strip region substrings**: delete substrings matching the AWS region pattern (regex `(?<![a-z0-9])[a-z]{2}(?:-[a-z]+)?-[a-z]+-\d(?![0-9])` — the optional middle segment covers 4-segment regions such as `us-gov-west-1`; the lookarounds keep token boundaries so `web-tier-2` is never mangled), then collapse leftover consecutive separators (`--`, `__`, etc.) into one. A name that is nothing but a region string falls back to itself rather than stripping to empty.
-3. **Exact match** after stripping; no fuzzy rules. A name match counts as multi-region deployment; **node counts and configuration are not compared**.
+3. **Exact, case-insensitive match** after stripping; no fuzzy rules. Normalization
+   case-folds both values before comparison. A name match counts as multi-region
+   deployment; **node counts and configuration are not compared**.
 4. The reason must state the heuristic nature, e.g. "name-matching heuristic: after region-stripping, matches ASG `myapp-nodes` in eu-west-1". For OpenSearch, if an ACTIVE cross-region connection is also detected (`DescribeOutboundConnections`), it is recorded in the reason as supporting evidence, but the verdict is based on the name match.
 
 ## 7. Exception (exemption) mechanism
@@ -243,13 +267,20 @@ Core principle: **"not scanned" and "scanned and found bad" are never conflated;
 | Account has none of a resource type | Service dimension N/A, excluded from the mean |
 | Resource type out of scoring scope (Lustre, Memcached, ...) | Listed per resource in the report with explanation, excluded from scoring |
 | Account outside the Cross-Region pattern (§6) | Cross-Region score N/A, with a note naming the pattern and the missing marker so "not required" stays distinguishable from "required and missing" |
-| Payload contradicts itself (non-array `accounts`, bad account id, empty regions, a marked pattern without exactly two regions) | Rejected at parse time by `InputError` — nothing is scanned |
+| Payload contradicts itself (non-array `accounts`, non-mapping entry, bad account id, non-string pattern, empty/duplicate regions, a marked pattern without exactly two distinct regions) | Rejected at parse time by `InputError` — nothing is scanned |
+
+Failure isolation follows the same dimensional boundary as scoring. Primary
+resource discovery is performed first; once Multi-AZ results exist, a standby
+Region or Cross-Region-only API failure marks **only the Cross-Region service
+dimension** N/A and preserves the Multi-AZ result. Accounts outside Cross-Region
+scope do not call Cross-Region-only APIs such as RDS Global Clusters, EFS
+replication configurations, or OpenSearch outbound connections.
 
 ## 9. Output
 
-- **JSON (source of truth)**: org summary → per account (both scores, inaccessible flag) → per service dimension score → per resource (score, reason, region, exemption flag, pass-through `pattern_id` / `application`).
+- **JSON (source of truth)**: org summary → per account (both scores, inaccessible flag, pass-through `pattern_id` / `application`) → per service dimension score → per resource (score, reason, region, exemption flag). Account metadata is emitted once at account level rather than duplicated into every resource.
 - **HTML (human report)**: single self-contained file (no external resources, no CDN, autoescape unconditionally on — `select_autoescape` would miss the `.j2` suffix and reasons/tags/names are externally influenced). Structure: header → summary tiles → org summary table (both scores per account) → per-account collapsible detail (service dimension scores → resource scores and reasons → notes). Shows `pattern_id` / application details, inaccessible accounts, and the out-of-scope resource list.
-- **Account lookup** is built in: a filter box over account id / pattern / application / region that narrows both the summary table and the detail panels (`/` focuses it, Escape clears), clickable summary rows and `#acct-<id>` deep links that open the matching detail, and a per-row jump link — finding one account among hundreds must not require scrolling.
+- **Account lookup** is built in: a filter box over account id / pattern / environment / application / region that narrows both the summary table and the detail panels (`/` focuses it, Escape clears), clickable summary rows and `#acct-<id>` deep links that open the matching detail, and a per-row jump link — finding one account among hundreds must not require scrolling.
 - **Presentation rules**: brand colour dresses the chrome only; score cells use the reserved status palette as a border beside a visible number (score bands: ≥15 good, ≥10 partial, else bad; `None` renders as N/A, never as 0), so colour never carries meaning alone.
 - Run mode: **a single callable entry point**, `score(payload, output_format)`, returning the result rather than writing files:
   - `output_format="json"` returns the report as a dict; the caller decides whether to serialize it.
@@ -275,7 +306,6 @@ Core principle: **"not scanned" and "scanned and found bad" are never conflated;
 - Account-level exemptions (allowlist)
 - ALB / Classic ELB / Gateway LB multi-AZ scoring (only NLB is scored in the Multi-AZ dimension)
 - EKS multi-AZ scoring as its own dimension (node-group AZ coverage is already scored under ASG; EKS control-plane AZ spread is AWS-managed and has no configuration lever)
-- `pattern_id` influencing scores (interface reserved)
 - OpenSearch data-plane checks (index replica counts), reading cross-cluster replication rules
 - Network topology checks beyond EFS mount targets
 - Trend tracking / historical comparison / persistence

@@ -12,6 +12,7 @@ from ..models import AccountSpec, AwsDict, ResourceScore, ServiceScan
 from ..naming import strip_region
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption
 from .aws_fetch import fetch_elb, fetch_elb_names
+from .common import capture_cross_region
 
 SERVICE = "elb"
 _SCORED_MULTIAZ_TYPE = "network"
@@ -70,9 +71,12 @@ def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     out = ServiceScan()
     out.multi_az = evaluate_elb_multiaz(raw["load_balancers"], primary)
     if spec.standby_regions:
-        standby_names = {
-            r: {strip_region(n) for n in fetch_elb_names(session, r)}
-            for r in spec.standby_regions
-        }
-        out.cross_region = evaluate_elb_crossregion(raw["load_balancers"], standby_names, primary)
+        def cross_region() -> list[ResourceScore]:
+            standby_names = {
+                r: {strip_region(n) for n in fetch_elb_names(session, r)}
+                for r in spec.standby_regions
+            }
+            return evaluate_elb_crossregion(raw["load_balancers"], standby_names, primary)
+
+        capture_cross_region(out, cross_region)
     return out

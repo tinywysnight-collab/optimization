@@ -23,6 +23,7 @@ def _account(result: AccountResult) -> dict[str, Any]:
     return {
         "account_id": spec.account_id,
         "pattern_id": spec.pattern_id,
+        "environment": spec.environment,
         "regions": spec.regions,
         "application": spec.application,
         "role_name": spec.role_name,

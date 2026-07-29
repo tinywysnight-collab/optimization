@@ -25,6 +25,7 @@ WRITE_VERBS = (
     "copy", "import", "export", "tag", "untag", "add", "remove", "apply",
     "promote", "failover", "purchase", "cancel", "accept", "reject", "set",
     "attach", "replace", "move", "migrate", "upgrade", "downgrade", "rotate",
+    "run",
 )
 _WRITE_SHAPED = re.compile(rf"^(?:{'|'.join(WRITE_VERBS)})_[a-z0-9_]+$")
 _OP_SHAPED = re.compile(r"^[a-z]+_[a-z0-9_]+$")
@@ -55,6 +56,41 @@ def _names_in(path: Path) -> set[str]:
         elif isinstance(node, ast.Constant) and isinstance(node.value, str):
             found.add(node.value)
     return found
+
+
+def _client_operations_in(path: Path) -> set[str]:
+    """Operations referenced on objects created by session.client(...)."""
+    tree = ast.parse(path.read_text())
+    client_names = {"client"}
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        value = node.value
+        if not isinstance(value, ast.Call) or not isinstance(value.func, ast.Attribute) \
+                or value.func.attr != "client":
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        client_names.update(target.id for target in targets if isinstance(target, ast.Name))
+
+    operations: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute):
+            continue
+        receiver = node.value
+        assigned_client = isinstance(receiver, ast.Name) and receiver.id in client_names
+        injected_sts = isinstance(receiver, ast.Attribute) and receiver.attr == "_sts"
+        chained_client = isinstance(receiver, ast.Call) \
+            and isinstance(receiver.func, ast.Attribute) and receiver.func.attr == "client"
+        if assigned_client or injected_sts or chained_client:
+            operations.add(node.attr)
+    return operations
+
+
+def _non_read_client_operations(path: Path) -> set[str]:
+    return {
+        operation for operation in _client_operations_in(path)
+        if operation not in _NOT_AWS and not operation.startswith(READ_VERBS)
+    }
 
 
 def test_source_tree_is_not_empty():
@@ -90,18 +126,12 @@ def test_every_operation_passed_to_the_fetch_helpers_is_read_only():
     assert all(op.startswith(READ_VERBS) for op in ops), sorted(ops)
 
 
-def test_client_method_calls_in_the_fetch_layer_are_read_only():
-    """Operations invoked directly as client attributes (c.describe_cluster(...))."""
-    fetch = SRC / "scanners" / "aws_fetch.py"
-    tree = ast.parse(fetch.read_text())
-    called: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            name = node.func.attr
-            if name not in _NOT_AWS and _OP_SHAPED.match(name):
-                called.add(name)
-    assert called, "no client method calls found — the fetch layer must have changed"
-    assert all(op.startswith(READ_VERBS) for op in called), sorted(called)
+def test_client_operations_across_the_source_tree_are_read_only():
+    """Positive allowlist over every recognized boto client, in every module."""
+    operations = set().union(*(_client_operations_in(path) for path in _source_files()))
+    offenders = set().union(*(_non_read_client_operations(path) for path in _source_files()))
+    assert operations, "no client operations found — client discovery must have changed"
+    assert not offenders, sorted(offenders)
 
 
 def test_assume_role_is_the_only_credential_operation_allowed():
@@ -115,6 +145,7 @@ def test_assume_role_is_the_only_credential_operation_allowed():
 
 def test_guard_would_catch_a_write_call():
     """Prove the detector works rather than passing because it matches nothing."""
+    assert _WRITE_SHAPED.match("run_instances")
     assert _WRITE_SHAPED.match("delete_db_instance")
     assert _WRITE_SHAPED.match("modify_db_cluster")
     assert _WRITE_SHAPED.match("create_replication_group")
@@ -123,3 +154,19 @@ def test_guard_would_catch_a_write_call():
     assert not _WRITE_SHAPED.match("add")
     assert not _WRITE_SHAPED.match("update")
     assert not _WRITE_SHAPED.match("copy")
+
+
+def test_positive_allowlist_catches_unusual_write_verbs(tmp_path):
+    source = tmp_path / "future_scanner.py"
+    source.write_text(
+        "def scan(session):\n"
+        "    client = session.client('ec2')\n"
+        "    client.run_instances()\n"
+        "    client.invoke()\n"
+        "    client.send_command()\n"
+        "    client.publish()\n"
+        "    client.batch_write_item()\n"
+    )
+    assert _non_read_client_operations(source) == {
+        "batch_write_item", "invoke", "publish", "run_instances", "send_command",
+    }

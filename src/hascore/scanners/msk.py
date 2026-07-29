@@ -16,6 +16,7 @@ from ..models import AccountSpec, AwsDict, ResourceScore, ServiceScan
 from ..naming import strip_region
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption
 from .aws_fetch import fetch_msk, fetch_msk_cluster_names
+from .common import capture_cross_region
 
 SERVICE = "msk"
 
@@ -92,9 +93,12 @@ def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     out = ServiceScan()
     out.multi_az = evaluate_msk_multiaz(clusters, primary)
     if spec.standby_regions:
-        standby_names = {
-            r: {strip_region(n) for n in fetch_msk_cluster_names(session, r)}
-            for r in spec.standby_regions
-        }
-        out.cross_region = evaluate_msk_crossregion(clusters, standby_names, primary)
+        def cross_region() -> list[ResourceScore]:
+            standby_names = {
+                r: {strip_region(n) for n in fetch_msk_cluster_names(session, r)}
+                for r in spec.standby_regions
+            }
+            return evaluate_msk_crossregion(clusters, standby_names, primary)
+
+        capture_cross_region(out, cross_region)
     return out
