@@ -32,7 +32,12 @@ _OP_SHAPED = re.compile(r"^[a-z]+_[a-z0-9_]+$")
 # Operation-shaped names that are Python, not AWS, and are therefore exempt.
 _NOT_AWS = frozenset({
     "read_text", "write_text", "get_paginator", "setdefault", "default_factory",
-    "get_caller_identity",  # STS identity check — read-only, verified separately
+    # sts:AssumeRole vends temporary credentials and changes nothing in the
+    # target account: it is how spec §3 reaches each account, and it does not
+    # breach the read-only directive. Listed explicitly so the exemption is a
+    # deliberate, reviewed decision rather than a gap in the verb list.
+    "assume_role",
+    "get_caller_identity",  # STS identity check — read-only
 })
 
 
@@ -97,6 +102,15 @@ def test_client_method_calls_in_the_fetch_layer_are_read_only():
                 called.add(name)
     assert called, "no client method calls found — the fetch layer must have changed"
     assert all(op.startswith(READ_VERBS) for op in called), sorted(called)
+
+
+def test_assume_role_is_the_only_credential_operation_allowed():
+    """Pin the exemption: sts:AssumeRole is permitted, its mutating neighbours
+    in the STS API are not."""
+    assert "assume_role" in _NOT_AWS
+    for forbidden in ("create_role", "delete_role", "put_role_policy", "update_assume_role_policy"):
+        assert _WRITE_SHAPED.match(forbidden), forbidden
+        assert forbidden not in _NOT_AWS
 
 
 def test_guard_would_catch_a_write_call():

@@ -12,12 +12,12 @@ class FakeSession:
         return FakeStsClient()
 
 
-def fake_factory(profile_name):
+def fake_factory(spec):
     return FakeSession()
 
 
-def failing_factory(profile_name):
-    raise RuntimeError("token expired")
+def failing_factory(spec):
+    raise RuntimeError("AccessDenied: not authorized to assume")
 
 
 def rs(service, score):
@@ -25,7 +25,7 @@ def rs(service, score):
 
 
 def spec(regions=("us-east-1", "eu-west-1")):
-    return AccountSpec("123456789012", list(regions), profile="p")
+    return AccountSpec("123456789012", list(regions))
 
 
 def patch_scanners(monkeypatch, mapping):
@@ -46,16 +46,10 @@ def test_happy_path_aggregates_both_dimensions(monkeypatch):
 def test_inaccessible_account_is_na_not_zero():
     result = scan_account(spec(), session_factory=failing_factory)
     assert not result.accessible
-    assert "token expired" in result.error
+    assert "AccessDenied" in result.error
+    assert "assume" in result.error
     assert result.multi_az.account_score is None
     assert result.cross_region.account_score is None
-
-
-def test_missing_profile_marks_inaccessible():
-    s = AccountSpec("123456789012", ["us-east-1"], profile=None, profile_error="no profile found")
-    result = scan_account(s, session_factory=fake_factory)
-    assert not result.accessible
-    assert "no profile found" in result.error
 
 
 def test_service_failure_is_na_and_other_services_still_scored(monkeypatch):

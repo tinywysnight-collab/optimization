@@ -9,7 +9,7 @@ def test_parses_full_account_entry():
         "pattern_id": "PATTERN-A1",
         "regions": ["us-east-1", "eu-west-1"],
         "application": {"name": "payments"},
-        "profile": "prod-payments",
+        "role_name": "LegacyAuditRole",
     }]})
     assert len(specs) == 1
     s = specs[0]
@@ -17,14 +17,14 @@ def test_parses_full_account_entry():
     assert s.regions == ["us-east-1", "eu-west-1"]
     assert s.pattern_id == "PATTERN-A1"
     assert s.application == {"name": "payments"}
-    assert s.profile == "prod-payments"
+    assert s.role_name == "LegacyAuditRole"
 
 
 def test_optional_fields_default():
     s = parse_accounts({"accounts": [{
         "account_id": "123456789012", "regions": ["us-east-1"],
     }]})[0]
-    assert s.pattern_id is None and s.application == {} and s.profile is None
+    assert s.pattern_id is None and s.application == {} and s.role_name is None
 
 
 def test_rejects_bad_account_id():

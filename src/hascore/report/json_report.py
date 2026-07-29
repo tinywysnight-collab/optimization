@@ -25,7 +25,7 @@ def _account(result: AccountResult) -> dict[str, Any]:
         "pattern_id": spec.pattern_id,
         "regions": spec.regions,
         "application": spec.application,
-        "profile": spec.profile,
+        "role_name": spec.role_name,
         "accessible": result.accessible,
         "error": result.error,
         "scores": {

@@ -45,7 +45,7 @@ The caller passes the account list in as a payload (a mapping, shown here as JSO
       "pattern_id": "PATTERN-A1",
       "regions": ["us-east-1", "eu-west-1"],
       "application": { "name": "payment-service", "owner": "team-x" },
-      "profile": "optional: explicit AWS CLI profile name"
+      "role_name": "optional: overrides the role assumed in this account"
     }
   ]
 }
@@ -56,12 +56,33 @@ The caller passes the account list in as a payload (a mapping, shown here as JSO
 - `regions[1:]` are standby regions: used only by the Cross-Region dimension's name-matching scans.
 - `pattern_id` and `application` are **free-schema, pass-through only**: the program does not validate or interpret them; they are copied verbatim into the output. The scoring rule engine keeps a clean interface to account metadata so pattern rules can influence scoring later (out of scope for v1).
 
-## 3. Authentication
+## 3. Access model — one master identity, a role assumed per account
 
-- The program implements no authentication logic. It relies entirely on named profiles in `~/.aws/config` after the user runs `aws sso login` (or equivalent).
-- **Profile resolution**: an explicit `profile` field wins; otherwise parse `~/.aws/config` and match `sso_account_id == account_id`.
-- One account matching multiple profiles → **error and require an explicit profile**; never guess.
-- No matching profile / expired credentials → mark the account "inaccessible", record N/A for both scores, and continue with the remaining accounts.
+- The caller supplies **one master-account profile**; that identity assumes a role
+  in every target account. Nothing else is configured per account.
+- **`role_name` is configurable** and defaults to `OrganizationAccountAccessRole`,
+  because organizations name the audit role differently. An account entry may
+  carry its own `role_name` when it is the odd one out; the global value applies
+  to the rest.
+- `master_profile` names a profile in the caller's AWS config. Omitting it falls
+  back to the default credential chain, which is what an EC2 instance or ECS task
+  already running in the master account carries.
+- `external_id` is sent on the assume call only when configured, for trust
+  policies that require it. `session_name` defaults to `hascore-resilience-scan`
+  so the assumed sessions are identifiable in CloudTrail.
+- The role must exist in each account and trust the master identity. It needs
+  **read-only** permissions: `ReadOnlyAccess` or `SecurityAudit` is sufficient.
+- **`sts:AssumeRole` vends temporary credentials and modifies nothing**, so it
+  does not breach the prime directive in §0. The read-only guard lists it as an
+  explicit, reviewed exemption alongside `sts:GetCallerIdentity`.
+- The assume call **is** the access check: succeeding proves the credentials work,
+  so no extra `GetCallerIdentity` is spent per account.
+- One STS client is built from the master session and shared by every worker
+  thread — botocore clients are thread-safe for calls, while sessions are not
+  safe to construct concurrently.
+- An account whose role cannot be assumed (missing role, untrusting policy,
+  expired master credentials, suspended account) is marked **inaccessible** with
+  N/A for both scores; the scan continues with the remaining accounts.
 
 ## 4. Score aggregation model (two-level)
 

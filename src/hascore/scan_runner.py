@@ -9,8 +9,8 @@ from .aggregation import finalize_dimension
 from .models import AccountResult, AccountSpec, ServiceNote
 from .scanners import asg, efs, eks, elasticache, elb, fsx, msk, opensearch, rds
 
-# Builds a boto3-compatible session from a profile name.
-SessionFactory = Callable[..., Any]
+# Turns an account spec into a boto3-compatible session scoped to that account.
+SessionFactory = Callable[[AccountSpec], Any]
 
 SCANNERS = {
     "rds": rds.scan,
@@ -25,27 +25,17 @@ SCANNERS = {
 }
 
 
-def _default_session_factory(profile_name: str) -> Any:
-    import boto3
-    return boto3.Session(profile_name=profile_name)
-
-
-def scan_account(spec: AccountSpec, session_factory: SessionFactory | None = None) -> AccountResult:
-    factory = session_factory or _default_session_factory
+def scan_account(spec: AccountSpec, session_factory: SessionFactory) -> AccountResult:
     result = AccountResult(spec=spec)
     multi_region = len(spec.regions) > 1
 
-    if not spec.profile:
-        result.accessible = False
-        result.error = spec.profile_error or "no AWS profile resolved for this account"
-        return result
-
     try:
-        session = factory(profile_name=spec.profile)
-        session.client("sts", region_name=spec.regions[0]).get_caller_identity()
+        # Assuming the role is itself the access check: if it succeeds the
+        # credentials are good, so no extra sts:GetCallerIdentity per account.
+        session = session_factory(spec)
     except Exception as exc:  # noqa: BLE001 - any failure means inaccessible
         result.accessible = False
-        result.error = f"cannot access account with profile '{spec.profile}': {exc}"
+        result.error = f"cannot assume a role in this account: {exc}"
         return result
 
     # SCANNERS is read at call time so tests can patch it.
@@ -75,7 +65,7 @@ def scan_account(spec: AccountSpec, session_factory: SessionFactory | None = Non
     return result
 
 
-def scan_all(specs: list[AccountSpec], session_factory: SessionFactory | None = None,
-              workers: int = 8) -> list[AccountResult]:
+def scan_all(specs: list[AccountSpec], session_factory: SessionFactory,
+             workers: int = 8) -> list[AccountResult]:
     with ThreadPoolExecutor(max_workers=workers) as pool:
         return list(pool.map(lambda s: scan_account(s, session_factory), specs))

@@ -15,6 +15,9 @@ from typing import Any
 
 from hascore import render_html, score
 
+MASTER_PROFILE = "master-account"      # profile in ~/.aws/config, or None
+ROLE_NAME = "OrganizationAccountAccessRole"   # role assumed in every account
+
 
 def build_payload() -> dict[str, Any]:
     """Return the accounts to scan.
@@ -23,7 +26,9 @@ def build_payload() -> dict[str, Any]:
     query, an internal API call, a file someone hands you, a hardcoded list.
     `regions[0]` is the primary region and is the only one scored for Multi-AZ;
     the rest are standby regions used for cross-region matching. `pattern_id`
-    and `application` are carried through to the report untouched.
+    and `application` are carried through to the report untouched. Add
+    `"role_name"` to an entry only when that account's audit role is named
+    differently from the one passed to score().
     """
     return {
         "accounts": [
@@ -45,9 +50,14 @@ def build_payload() -> dict[str, Any]:
 def run() -> None:
     payload = build_payload()
 
+    # Credentials: MASTER_PROFILE assumes ROLE_NAME in each account. Set
+    # MASTER_PROFILE to None to use the default chain (an instance/task role in
+    # the master account already has it).
+    #
     # One scan, then both formats rendered from it. Calling score() twice would
     # scan every account twice — minutes of extra API calls at real scale.
-    report = score(payload, "json", workers=8)
+    report = score(payload, "json",
+                   master_profile=MASTER_PROFILE, role_name=ROLE_NAME, workers=8)
     html = render_html(report)
 
     out = Path("out")

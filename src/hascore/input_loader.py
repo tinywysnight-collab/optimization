@@ -31,6 +31,6 @@ def parse_accounts(payload: dict[str, Any]) -> list[AccountSpec]:
             regions=regions,
             pattern_id=raw.get("pattern_id"),
             application=raw.get("application") or {},
-            profile=raw.get("profile"),
+            role_name=raw.get("role_name"),
         ))
     return specs

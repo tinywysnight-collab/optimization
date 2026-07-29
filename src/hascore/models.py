@@ -18,8 +18,7 @@ class AccountSpec:
     regions: list[str]
     pattern_id: str | None = None
     application: dict[str, Any] = field(default_factory=dict)
-    profile: str | None = None
-    profile_error: str | None = None  # set when profile resolution failed
+    role_name: str | None = None  # overrides the global role for this account
 
 
 @dataclass
