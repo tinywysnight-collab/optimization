@@ -169,13 +169,12 @@ def fetch_elb(session: Any, region: str) -> dict[str, Any]:
     return {"load_balancers": merged}
 
 
-def fetch_elb_names(session: Any, region: str) -> list[str]:
+def fetch_elb_typed_names(session: Any, region: str) -> list[tuple[str, str]]:
+    """(type, name) for standby matching. Only ELBv2 — Classic is out of scope,
+    and its API reports no type, so including it could only produce false pairs."""
     v2 = session.client("elbv2", region_name=region, config=_CLIENT_CONFIG)
-    names = [lb["LoadBalancerName"] for lb in _paginate(v2, "describe_load_balancers", "LoadBalancers")]
-    classic = session.client("elb", region_name=region, config=_CLIENT_CONFIG)
-    names += [lb["LoadBalancerName"]
-              for lb in _paginate(classic, "describe_load_balancers", "LoadBalancerDescriptions")]
-    return names
+    return [(lb.get("Type", "unknown"), lb["LoadBalancerName"])
+            for lb in _paginate(v2, "describe_load_balancers", "LoadBalancers")]
 
 
 def fetch_msk(session: Any, region: str) -> dict[str, Any]:

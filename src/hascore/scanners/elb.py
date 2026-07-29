@@ -11,11 +11,13 @@ from typing import Any
 from ..models import AccountSpec, AwsDict, ResourceScore, ServiceScan
 from ..naming import strip_region
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption
-from .aws_fetch import fetch_elb, fetch_elb_names
+from .aws_fetch import fetch_elb, fetch_elb_typed_names
 from .common import capture_cross_region
 
 SERVICE = "elb"
 _SCORED_MULTIAZ_TYPE = "network"
+# Scope for both dimensions; classic and gateway are out of scope entirely.
+_IN_SCOPE_TYPES = ("network", "application")
 
 
 def evaluate_elb_multiaz(load_balancers: list[AwsDict], region: str) -> list[ResourceScore]:
@@ -28,7 +30,7 @@ def evaluate_elb_multiaz(load_balancers: list[AwsDict], region: str) -> list[Res
             results.append(ResourceScore(SERVICE, name, region, None, reason))
             continue
         if lb_type != _SCORED_MULTIAZ_TYPE:
-            reason = (f"multi-AZ scoring covers NLB only; this is a '{lb_type}' load balancer, "
+            reason = (f"scoring covers NLB and ALB; this is a '{lb_type}' load balancer, "
                       "recorded N/A")
             results.append(ResourceScore(SERVICE, name, region, None, reason))
             continue
@@ -44,22 +46,33 @@ def evaluate_elb_multiaz(load_balancers: list[AwsDict], region: str) -> list[Res
     return results
 
 
-def evaluate_elb_crossregion(load_balancers: list[AwsDict], standby_names: dict[str, set[str]],
+def evaluate_elb_crossregion(load_balancers: list[AwsDict],
+                             standby_index: dict[str, set[tuple[str, str]]],
                              primary_region: str) -> list[ResourceScore]:
-    """standby_names: {standby_region: set of region-stripped load balancer names}."""
+    """standby_index: {standby_region: {(type, region-stripped name)}}.
+
+    The type is half the key on purpose. Names collide across types — an ALB and
+    an NLB fronting the same service are often named alike — and an NLB is not a
+    standby for an ALB: different listeners, different target semantics. Matching
+    on name alone would pass an account whose real DR copy does not exist.
+    """
     results: list[ResourceScore] = []
     for lb in load_balancers:
-        name = lb["name"]
+        name, lb_type = lb["name"], lb["type"]
+        if lb_type not in _IN_SCOPE_TYPES:
+            results.append(ResourceScore(SERVICE, name, primary_region, None,
+                f"scoring covers NLB and ALB; this is a '{lb_type}' load balancer, recorded N/A"))
+            continue
         mv = strip_region(name)
-        hits = sorted(r for r, names in standby_names.items() if mv in names)
+        hits = sorted(r for r, pairs in standby_index.items() if (lb_type, mv) in pairs)
         if hits:
             score = 20.0
             reason = (f"name-matching heuristic: after region-stripping ('{mv}'), a matching "
-                      f"{lb['type']} load balancer exists in {', '.join(hits)}")
+                      f"{lb_type} load balancer exists in {', '.join(hits)}")
         else:
             score = 0.0
-            reason = (f"name-matching heuristic: no {lb['type']} load balancer matching '{mv}' "
-                      f"found in standby region(s) {', '.join(sorted(standby_names))}")
+            reason = (f"name-matching heuristic: no {lb_type} load balancer matching '{mv}' "
+                      f"found in standby region(s) {', '.join(sorted(standby_index))}")
         score, exempted, suffix = apply_exemption(score, lb.get("tags", {}), CROSSREGION_TAG)
         results.append(ResourceScore(SERVICE, name, primary_region, score, reason + suffix, exempted))
     return results
@@ -72,11 +85,11 @@ def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     out.multi_az = evaluate_elb_multiaz(raw["load_balancers"], primary)
     if spec.standby_regions:
         def cross_region() -> list[ResourceScore]:
-            standby_names = {
-                r: {strip_region(n) for n in fetch_elb_names(session, r)}
+            standby_index = {
+                r: {(t, strip_region(n)) for t, n in fetch_elb_typed_names(session, r)}
                 for r in spec.standby_regions
             }
-            return evaluate_elb_crossregion(raw["load_balancers"], standby_names, primary)
+            return evaluate_elb_crossregion(raw["load_balancers"], standby_index, primary)
 
         capture_cross_region(out, cross_region)
     return out

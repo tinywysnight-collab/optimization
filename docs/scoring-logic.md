@@ -193,12 +193,15 @@ Engine matching is case-insensitive.
 
 ## ELB — max 20, NLB only
 
-Enabled AZs ≥2 → **20**, else **0**.
+Scope for both dimensions is **NLB and ALB**. Classic and Gateway load balancers
+record **N/A** everywhere.
 
-**ALB records N/A**: AWS requires at least two AZ subnets at creation, so there
-is no configuration lever to assess and every ALB would score full marks,
-diluting the real failures elsewhere. Classic and Gateway load balancers are
-also N/A — scoring covers NLB only.
+Of those two, only the NLB is scored here: enabled AZs ≥2 → **20**, else **0**.
+
+**ALB records N/A in this dimension.** AWS requires at least two AZ subnets at
+creation, so there is no configuration lever to assess and every ALB would score
+full marks, diluting the real failures elsewhere. It *is* scored in the
+Cross-Region dimension, where having a standby is a genuine decision.
 
 ## MSK — max 20, provisioned only
 
@@ -262,7 +265,7 @@ token is stripped from both names and what remains must match exactly.
 | **ASG** (non-EKS only) | ASG name |
 | **EKS** | cluster name (from `ListClusters`) |
 | **OpenSearch** | domain name |
-| **ELB** | load balancer name |
+| **ELB** (NLB and ALB) | load balancer **type paired with** its name |
 | **MSK** | cluster name |
 | **FSx for Windows** | `Name` tag |
 
@@ -272,6 +275,12 @@ So `payments-ap-south-1-web` matches `payments-ap-south-2-web`: both strip to
 **Every reason says it is a heuristic**, because it can be wrong in both
 directions — two unrelated resources that happen to share a name will match, and
 a real DR pair named inconsistently will not.
+
+**ELB matches on type as well as name.** An ALB is only satisfied by an ALB: an
+NLB of the same name is a different kind of entry point, with different listeners
+and target semantics, and crediting it would pass an account whose real DR copy
+does not exist. Names collide across types often, since an ALB and an NLB
+fronting the same service tend to be named alike.
 
 Region stripping handles 3- and 4-segment regions (`ap-south-1`,
 `us-gov-west-1`), is case-insensitive, and requires token boundaries so

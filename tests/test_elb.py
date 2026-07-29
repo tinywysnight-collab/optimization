@@ -42,32 +42,61 @@ def test_classic_and_gateway_are_na():
     scores = by_id(evaluate_elb_multiaz(
         [lb("clb-1", lb_type="classic"), lb("gwlb-1", lb_type="gateway")], R))
     assert scores["clb-1"].score is None and scores["gwlb-1"].score is None
-    assert "NLB only" in scores["clb-1"].reason
+    assert "NLB and ALB" in scores["clb-1"].reason
 
 
-# --- cross-region (all types) ---
+# --- cross-region (NLB and ALB only, matched on type as well as name) ---
+
+def sb(region, *pairs):
+    """Standby index: {region: {(type, region-stripped name)}}."""
+    return {region: set(pairs)}
+
 
 def test_name_match_scores_20_with_heuristic_reason():
     scores = by_id(evaluate_elb_crossregion(
-        [lb("myapp-us-east-1-alb")], {"eu-west-1": {"myapp-alb"}}, R))
+        [lb("myapp-us-east-1-alb", lb_type="application")],
+        sb("eu-west-1", ("application", "myapp-alb")), R))
     assert scores["myapp-us-east-1-alb"].score == 20.0
     assert "heuristic" in scores["myapp-us-east-1-alb"].reason
     assert "eu-west-1" in scores["myapp-us-east-1-alb"].reason
 
 
+def test_a_same_named_load_balancer_of_another_type_is_not_a_standby():
+    """An ALB is not stood by an NLB: different listeners, different target
+    semantics. Matching on name alone would pass an account with no DR copy."""
+    scores = by_id(evaluate_elb_crossregion(
+        [lb("myapp-alb", lb_type="application")],
+        sb("eu-west-1", ("network", "myapp-alb")), R))
+    assert scores["myapp-alb"].score == 0.0
+    assert "application" in scores["myapp-alb"].reason
+
+
+def test_nlb_matches_nlb():
+    scores = by_id(evaluate_elb_crossregion(
+        [lb("myapp-nlb", lb_type="network")],
+        sb("eu-west-1", ("network", "myapp-nlb")), R))
+    assert scores["myapp-nlb"].score == 20.0
+
+
 def test_no_match_scores_0():
     scores = by_id(evaluate_elb_crossregion(
-        [lb("myapp-alb")], {"eu-west-1": {"other"}}, R))
+        [lb("myapp-alb", lb_type="application")],
+        sb("eu-west-1", ("application", "other")), R))
     assert scores["myapp-alb"].score == 0.0
+
+
+def test_classic_and_gateway_are_na_in_cross_region_too():
+    """Scope is NLB and ALB; the other types are out of scope in both dimensions."""
+    scores = by_id(evaluate_elb_crossregion(
+        [lb("legacy", lb_type="classic"), lb("gwlb", lb_type="gateway")],
+        sb("eu-west-1", ("classic", "legacy"), ("gateway", "gwlb")), R))
+    assert scores["legacy"].score is None
+    assert scores["gwlb"].score is None
+    assert "NLB and ALB" in scores["legacy"].reason
 
 
 def test_exemption_tag_floors_to_10():
     scores = by_id(evaluate_elb_crossregion(
-        [lb("solo", tags={"disable-crossregion": ""})], {"eu-west-1": set()}, R))
+        [lb("solo", lb_type="network", tags={"disable-crossregion": ""})],
+        sb("eu-west-1"), R))
     assert scores["solo"].score == 10.0 and scores["solo"].exempted
-
-
-def test_type_appears_in_reason():
-    scores = by_id(evaluate_elb_crossregion(
-        [lb("legacy", lb_type="classic")], {"eu-west-1": set()}, R))
-    assert "classic" in scores["legacy"].reason

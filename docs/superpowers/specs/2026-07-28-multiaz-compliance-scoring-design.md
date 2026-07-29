@@ -176,9 +176,12 @@ The split the deployment makes is who holds the master role; the score follows i
 
 ### 5.7 ELB (max 20, NLB only)
 
+Scope is **NLB and ALB**; Classic and Gateway load balancers are out of scope and
+recorded **N/A** in both dimensions.
+
 - **Network Load Balancer**: enabled AZs ≥2 → 20; a single AZ → 0. Judged by configuration (`AvailabilityZones` from `DescribeLoadBalancers`), consistent with ASG.
-- **Application Load Balancer**: recorded as **N/A**. AWS enforces at least two AZ subnets when an ALB is created, so there is no configuration lever to assess — scoring it would add a permanently-full-marks dimension that dilutes real failures elsewhere. Same principle as FSx Lustre in §5.5.
-- **Classic ELB and Gateway Load Balancer**: recorded as **N/A**, listed in the report with a note that scoring covers NLB only.
+- **Application Load Balancer**: recorded as **N/A** in the Multi-AZ dimension. AWS enforces at least two AZ subnets when an ALB is created, so there is no configuration lever to assess — scoring it would add a permanently-full-marks dimension that dilutes real failures elsewhere. Same principle as FSx Lustre in §5.5. (ALB *is* scored in the Cross-Region dimension, where having a standby is a real decision.)
+- **Classic ELB and Gateway Load Balancer**: recorded as **N/A**, listed in the report with a note that scoring covers NLB and ALB only.
 
 ### 5.8 MSK (max 20, provisioned clusters only)
 
@@ -218,7 +221,7 @@ the subnet count is the AZ count (`ZoneIds` wins when present):
 | ASG (non-EKS only) | **Name-matching heuristic**: same name after region-stripping exists in a standby region | match → 20 |
 | EKS | **Name-matching heuristic**: same cluster name after region-stripping exists in a standby region (via `ListClusters`) | match → 20 |
 | OpenSearch | **Name-matching heuristic**: same domain name after region-stripping exists in a standby region | match → 20 |
-| ELB (ALB/NLB/Classic) | **Name-matching heuristic**: same load balancer name after region-stripping exists in a standby region | match → 20 |
+| ELB (NLB and ALB) | **Name-matching heuristic**: a load balancer of the **same type** and the same name after region-stripping exists in a standby region | match → 20 |
 | MSK (provisioned) | **Name-matching heuristic**: same cluster name after region-stripping exists in a standby region (this estate does not use MSK Replicator; if it ever does, `ListReplicators` offers a native upgrade path) | match → 20 |
 | FSx for Windows | **Name-matching heuristic**: same `Name` tag after region-stripping exists on a Windows file system in a standby region | match → 20 |
 
@@ -228,7 +231,8 @@ the subnet count is the AZ count (`ZoneIds` wins when present):
   instance whose replication-source field is set is a replica and is not scored
   as another primary resource.
 - **EKS is judged at the cluster level, directly through the EKS API**, and forms its own service dimension. Node-group ASGs are *excluded* from the ASG cross-region scoring (they remain scored in the Multi-AZ dimension) for three reasons: managed node-group ASG names are AWS-generated random strings (`eks-40bbb26b-…`) that can never match across regions; node-group names are commonly generic (`default`, `spot`, `system`) and would produce false positives against unrelated clusters in a standby region; and a cluster with four node groups would otherwise carry four times the weight of a single-node-group cluster. Cluster-level matching also covers Fargate-only clusters, which have no ASG at all. Exemption tags are read from the cluster's own tags.
-- **ELB cross-region scoring covers all load balancer types** (ALB, NLB, Classic), unlike the Multi-AZ dimension which scores NLB only (§5.7) — a missing DR copy is a real gap regardless of load balancer type. The match value is the load balancer name.
+- **ELB cross-region scoring covers NLB and ALB.** Unlike the Multi-AZ dimension, which scores NLB only (§5.7), a missing DR copy is a real gap for both types. Classic and Gateway load balancers are **N/A**, matching §5.7's scope.
+- **The ELB match is on type *and* name.** An ALB in the primary region is only satisfied by an ALB in the standby: a same-named NLB is a different kind of entry point with different listeners and target semantics, and treating it as the standby would pass an account whose real DR copy does not exist.
 - **FSx for Windows** has no native cross-region replication (AWS Backup copies are backups, not standby; DataSync sync is invisible from the FSx API), so it is scored with the name-matching heuristic over the **`Name` tag** (file system ids are random, so the tag is the only usable match value). A Windows file system **without a `Name` tag scores 0** with a reason explaining there is no name to match on — N/A would let untagged resources escape scoring. Other FSx types remain N/A.
 - Native-relation detection obeys the same designated-standby rule as name
   matching: only a relation reaching **`regions[1]`** counts. A replica or Global
