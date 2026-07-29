@@ -1,7 +1,12 @@
 # AWS Resilience Compliance Scoring Tool — Design
 
 Date: 2026-07-28
-Status: implemented (v1) — this document is kept in step with the code; scoring-rule changes land here in the same commit
+Status: implemented (v1)
+
+**This document is the source of truth.** Behaviour is changed here first, then in
+the code, and both land in the same commit — see the spec-first workflow in
+`AGENTS.md`. A rule that reads differently here and in `src/` is a defect in this
+document, not a quirk of the implementation.
 
 ## 0. Prime directive — read-only, without exception
 

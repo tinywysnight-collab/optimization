@@ -6,6 +6,39 @@
 - Refer to **GUIDELINE.md** for AI usage in code generation and review.
 - Refer to **./docs/superpowers/specs** to implement the required features. If the spec is unclear, ask for clarification before coding.
 
+## Spec-first workflow
+
+**The spec is the source of truth. Every change starts by reading it, and the
+spec is updated before the code — never after, never in a follow-up commit.**
+
+For any change, in this order:
+
+1. **Read the relevant spec section first.** Not from memory — open the file.
+2. **Compare it to what is being asked.** If the request contradicts, extends, or
+   is absent from the spec, that is a gap.
+3. **Close the gap in the spec first**, and get it confirmed if the rule itself is
+   a judgement call (a scoring threshold, a scope boundary) rather than a fact.
+4. **Only then write the test and the code**, implementing what the spec now says.
+5. **Spec and code land in the same commit.** A commit that changes behaviour
+   without touching the spec is incomplete; so is a spec edit describing code
+   that does not exist yet.
+
+Why this order: the spec is what a reviewer, a future maintainer, and the next
+agent read to decide whether the code is correct. If the code moves first, the
+spec silently becomes a description of a system that no longer exists, and every
+later decision is made against a stale map. Fixing that drift afterwards costs
+far more than writing one paragraph up front.
+
+Two habits that make this real rather than ceremonial:
+
+- **Verify the spec's claims by running them, not by reading them.** When a spec
+  section states a constant, a threshold, or a validation rule, execute it
+  against the code. Assertions that are merely re-read tend to agree with
+  whatever you already believe.
+- **When a rule can be enforced mechanically, enforce it.** The read-only prime
+  directive is a test (`tests/test_read_only_guard.py`), not a paragraph, because
+  documentation cannot fail a build.
+
 ## Code Standards
 
 - 4-space indentation, PEP 8
