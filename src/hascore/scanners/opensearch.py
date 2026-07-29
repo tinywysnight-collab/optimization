@@ -97,10 +97,10 @@ def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     raw = fetch_opensearch(session, primary)
     out = ServiceScan()
     out.multi_az = evaluate_opensearch_multiaz(raw["domains"], raw["tags_by_arn"], primary)
-    if len(spec.regions) > 1:
+    if spec.standby_regions:
         standby_domains = {
             r: {strip_region(n) for n in fetch_opensearch_domain_names(session, r)}
-            for r in spec.regions[1:]
+            for r in spec.standby_regions
         }
         out.cross_region = evaluate_opensearch_crossregion(
             raw["domains"], raw["tags_by_arn"], standby_domains, raw["connections"], primary)

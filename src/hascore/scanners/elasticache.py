@@ -92,7 +92,7 @@ def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     out.multi_az = evaluate_elasticache_multiaz(
         raw["replication_groups"], raw["cache_clusters"], raw["serverless_caches"],
         raw["tags_by_arn"], primary)
-    if len(spec.regions) > 1:
+    if spec.standby_regions:
         out.cross_region = evaluate_elasticache_crossregion(
             raw["replication_groups"], raw["cache_clusters"], raw["serverless_caches"],
             raw["tags_by_arn"], primary)

@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from .aggregation import finalize_dimension
-from .models import AccountResult, AccountSpec, ServiceNote
+from .models import CROSS_REGION_PATTERN, AccountResult, AccountSpec, ServiceNote
 from .scanners import asg, efs, eks, elasticache, elb, fsx, msk, opensearch, rds
 
 # Turns an account spec into a boto3-compatible session scoped to that account.
@@ -27,7 +27,9 @@ SCANNERS = {
 
 def scan_account(spec: AccountSpec, session_factory: SessionFactory) -> AccountResult:
     result = AccountResult(spec=spec)
-    multi_region = len(spec.regions) > 1
+    # Cross-Region scope is a property of the account's pattern, not of how
+    # many regions the payload happens to list (spec §6).
+    cross_region_scored = bool(spec.standby_regions)
 
     try:
         # Assuming the role is itself the access check: if it succeeds the
@@ -47,7 +49,7 @@ def scan_account(spec: AccountSpec, session_factory: SessionFactory) -> AccountR
             message = f"scan failed: {exc}; dimension recorded N/A for this service"
             result.multi_az.notes.append(ServiceNote(name, message))
             result.multi_az.failed_services.append(name)
-            if multi_region:
+            if cross_region_scored:
                 result.cross_region.notes.append(ServiceNote(name, message))
                 result.cross_region.failed_services.append(name)
             continue
@@ -57,11 +59,13 @@ def scan_account(spec: AccountSpec, session_factory: SessionFactory) -> AccountR
         result.cross_region.notes.extend(svc.notes_cross_region)
 
     finalize_dimension(result.multi_az)
-    if multi_region:
+    if cross_region_scored:
         finalize_dimension(result.cross_region)
     else:
         result.cross_region.notes.append(ServiceNote(
-            "all", "single-region account; cross-region dimension recorded N/A"))
+            "all", f"pattern '{spec.pattern_id or '(none)'}' does not carry the "
+                   f"{CROSS_REGION_PATTERN} marker, so no standby region is expected; "
+                   "cross-region dimension recorded N/A"))
     return result
 
 

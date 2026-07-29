@@ -130,7 +130,7 @@ def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     raw = fetch_rds(session, primary)
     out = ServiceScan()
     out.multi_az = evaluate_rds_multiaz(raw["instances"], raw["clusters"], primary)
-    if len(spec.regions) > 1:
+    if spec.standby_regions:
         out.cross_region = evaluate_rds_crossregion(
             raw["instances"], raw["clusters"], raw["global_clusters"], primary, spec.regions)
     return out

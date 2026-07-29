@@ -35,7 +35,7 @@ def scanners(monkeypatch):
 
 PAYLOAD = {"accounts": [
     {"account_id": "123456789012", "regions": ["us-east-1", "eu-west-1"],
-     "pattern_id": "P1", "application": {"name": "pay"}},
+     "pattern_id": "GS-001", "application": {"name": "pay"}},
     {"account_id": "222222222222", "regions": ["us-east-1"]},
 ]}
 
@@ -56,7 +56,7 @@ def test_json_format_returns_the_report_dict(scanners):
     assert isinstance(report, dict)
     acct = next(a for a in report["accounts"] if a["account_id"] == "123456789012")
     assert acct["scores"] == {"multi_az": 20.0, "cross_region": 0.0}
-    assert acct["pattern_id"] == "P1"
+    assert acct["pattern_id"] == "GS-001"
     assert acct["application"] == {"name": "pay"}
 
 

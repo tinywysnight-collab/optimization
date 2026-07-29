@@ -65,11 +65,11 @@ def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     groups = fetch_asg(session, primary)["groups"]
     out = ServiceScan()
     out.multi_az = evaluate_asg_multiaz(groups, primary)
-    if len(spec.regions) > 1:
+    if spec.standby_regions:
         standby_names = {
             r: {strip_region(g["AutoScalingGroupName"])
                 for g in fetch_asg(session, r)["groups"] if not is_eks_asg(g)}
-            for r in spec.regions[1:]
+            for r in spec.standby_regions
         }
         out.cross_region = evaluate_asg_crossregion(groups, standby_names, primary)
     return out

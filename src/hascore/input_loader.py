@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .models import AccountSpec
+from .models import CROSS_REGION_PATTERN, AccountSpec
 
 _ACCOUNT_ID = re.compile(r"^\d{12}$")
 
@@ -26,11 +26,20 @@ def parse_accounts(payload: dict[str, Any]) -> list[AccountSpec]:
         regions = raw.get("regions")
         if not isinstance(regions, list) or not regions or not all(isinstance(r, str) and r for r in regions):
             raise InputError(f"accounts[{i}]: regions must be a non-empty list of strings")
-        specs.append(AccountSpec(
+        spec = AccountSpec(
             account_id=account_id,
             regions=regions,
             pattern_id=raw.get("pattern_id"),
             application=raw.get("application") or {},
             role_name=raw.get("role_name"),
-        ))
+        )
+        # Fail fast: a pattern that mandates a standby but names only one region
+        # is a contradiction in the payload, not something to discover mid-scan.
+        if spec.cross_region_required and len(regions) < 2:
+            raise InputError(
+                f"accounts[{i}] ({account_id}): pattern '{spec.pattern_id}' requires a "
+                f"standby region ({CROSS_REGION_PATTERN}), but only one region was given: "
+                f"{regions}. Add the second region, or use a pattern without the marker."
+            )
+        specs.append(spec)
     return specs

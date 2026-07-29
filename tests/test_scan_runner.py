@@ -24,8 +24,9 @@ def rs(service, score):
     return ResourceScore(service=service, resource_id="r1", region="us-east-1", score=score, reason="x")
 
 
-def spec(regions=("us-east-1", "eu-west-1")):
-    return AccountSpec("123456789012", list(regions))
+def spec(regions=("us-east-1", "eu-west-1"), pattern="GS-001"):
+    """GS-001 by default: only that pattern puts an account in Cross-Region scope."""
+    return AccountSpec("123456789012", list(regions), pattern_id=pattern)
 
 
 def patch_scanners(monkeypatch, mapping):
@@ -66,13 +67,17 @@ def test_service_failure_is_na_and_other_services_still_scored(monkeypatch):
     assert any("AccessDenied" in n.message for n in result.multi_az.notes)
 
 
-def test_single_region_account_cross_region_is_na(monkeypatch):
+def test_account_outside_the_gs001_pattern_has_cross_region_na(monkeypatch):
+    """Two regions are not enough — the pattern decides whether a standby is
+    expected, so an out-of-scope account is N/A rather than scored 0."""
     patch_scanners(monkeypatch, {
-        "rds": lambda session, s: ServiceScan(multi_az=[rs("rds", 20.0)]),
+        "rds": lambda session, s: ServiceScan(multi_az=[rs("rds", 20.0)],
+                                              cross_region=[rs("rds", 20.0)]),
     })
-    result = scan_account(spec(regions=("us-east-1",)), session_factory=fake_factory)
+    result = scan_account(spec(pattern="PATTERN-A1"), session_factory=fake_factory)
+    assert result.multi_az.account_score == 20.0
     assert result.cross_region.account_score is None
-    assert any("single-region" in n.message for n in result.cross_region.notes)
+    assert any("GS-001" in n.message for n in result.cross_region.notes)
 
 
 def test_scan_all_returns_result_per_spec(monkeypatch):

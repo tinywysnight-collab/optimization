@@ -7,6 +7,10 @@ from typing import Any
 MULTI_AZ = "multi_az"
 CROSS_REGION = "cross_region"
 
+# Only accounts whose pattern carries this marker are expected to run a standby
+# region, so only they are scored on the Cross-Region dimension (spec §6).
+CROSS_REGION_PATTERN = "GS-001"
+
 # Raw AWS API response objects. boto3 ships no type stubs, so their shape is Any.
 AwsDict = dict[str, Any]
 
@@ -19,6 +23,23 @@ class AccountSpec:
     pattern_id: str | None = None
     application: dict[str, Any] = field(default_factory=dict)
     role_name: str | None = None  # overrides the global role for this account
+
+    @property
+    def cross_region_required(self) -> bool:
+        """Whether this account's pattern puts it in Cross-Region scope."""
+        return CROSS_REGION_PATTERN.upper() in (self.pattern_id or "").upper()
+
+    @property
+    def standby_regions(self) -> list[str]:
+        """Regions the Cross-Region dimension compares against.
+
+        The second region is the standby; later regions are not candidates.
+        Empty when the account is out of scope, which is what makes every
+        scanner skip the dimension without repeating the pattern rule.
+        """
+        if not self.cross_region_required:
+            return []
+        return self.regions[1:2]
 
 
 @dataclass

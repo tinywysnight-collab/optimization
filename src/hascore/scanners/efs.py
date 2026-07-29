@@ -63,7 +63,7 @@ def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     raw = fetch_efs(session, primary)
     out = ServiceScan()
     out.multi_az = evaluate_efs_multiaz(raw["filesystems"], raw["mount_targets_by_fs"], primary)
-    if len(spec.regions) > 1:
+    if spec.standby_regions:
         out.cross_region = evaluate_efs_crossregion(
             raw["filesystems"], raw["replications"], primary, spec.regions)
     return out

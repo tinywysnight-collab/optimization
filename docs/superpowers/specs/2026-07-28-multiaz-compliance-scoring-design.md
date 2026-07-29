@@ -53,7 +53,8 @@ The caller passes the account list in as a payload (a mapping, shown here as JSO
 
 - The payload must be a mapping whose `accounts` is an **array** — a malformed `{"accounts": {}}` raises `InputError` rather than silently scanning zero accounts.
 - `regions[0]` is the **primary region**: Multi-AZ scoring scans the primary region only.
-- `regions[1:]` are standby regions: used only by the Cross-Region dimension's name-matching scans.
+- `regions[1]` is the **standby region**, used only by the Cross-Region dimension and only for accounts in its scope (§6). Any third and later region is carried in the report but never scanned.
+- A `pattern_id` carrying the Cross-Region marker with only one region is **rejected at parse time** — a pattern that mandates a standby while the payload names none is a contradiction, and failing fast beats discovering it after scanning hundreds of accounts.
 - `pattern_id` and `application` are **free-schema, pass-through only**: the program does not validate or interpret them; they are copied verbatim into the output. The scoring rule engine keeps a clean interface to account metadata so pattern rules can influence scoring later (out of scope for v1).
 
 ## 3. Access model — one master identity, a role assumed per account
@@ -184,7 +185,9 @@ the subnet count is the AZ count (`ZoneIds` wins when present):
 
 ## 6. Cross-Region dimension criteria (max 20, independent of the Multi-AZ score)
 
-- Scored only when the input has ≥2 `regions`; **single-region accounts are N/A** (not 0).
+- **Scope is decided by `pattern_id`, not by region count.** Only accounts whose pattern contains the marker `GS-001` (substring, case-insensitive) are expected to run a standby, so only they are scored here. Every other account is **N/A** — never 0 — and the note names the pattern and the missing marker, so a reader can tell "not required" from "required and missing".
+- For an in-scope account the standby is **`regions[1]` alone**. Later regions are not standby candidates: the pattern promises one standby, and silently matching against a third region would let an unrelated deployment satisfy the check.
+- An in-scope account with no `regions[1]` never reaches the scan — the input loader rejects it (§2).
 - Aggregation model identical to Multi-AZ (two-level, N/A dimensions excluded).
 
 ### Scored services and detection

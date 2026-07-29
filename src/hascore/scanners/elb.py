@@ -69,10 +69,10 @@ def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     raw = fetch_elb(session, primary)
     out = ServiceScan()
     out.multi_az = evaluate_elb_multiaz(raw["load_balancers"], primary)
-    if len(spec.regions) > 1:
+    if spec.standby_regions:
         standby_names = {
             r: {strip_region(n) for n in fetch_elb_names(session, r)}
-            for r in spec.regions[1:]
+            for r in spec.standby_regions
         }
         out.cross_region = evaluate_elb_crossregion(raw["load_balancers"], standby_names, primary)
     return out
