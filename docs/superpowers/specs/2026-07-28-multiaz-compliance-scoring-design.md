@@ -234,11 +234,12 @@ Core principle: **"not scanned" and "scanned and found bad" are never conflated;
 
 | Situation | Handling |
 |---|---|
-| No profile / expired credentials / cannot access account | Account marked "inaccessible", both scores N/A, listed prominently in the report, scan continues |
+| Cannot assume the role in an account (role missing, trust policy refuses, master credentials expired, account suspended) | Account marked "inaccessible", both scores N/A, listed prominently in the report, scan continues |
 | A service API call fails (e.g. missing `fsx:Describe*` permission) | That service dimension marked "scan failed", N/A; other services scored normally; reason records the error |
 | Account has none of a resource type | Service dimension N/A, excluded from the mean |
 | Resource type out of scoring scope (Lustre, Memcached, ...) | Listed per resource in the report with explanation, excluded from scoring |
-| Single-region account | Cross-Region score N/A |
+| Account outside the Cross-Region pattern (§6) | Cross-Region score N/A, with a note naming the pattern and the missing marker so "not required" stays distinguishable from "required and missing" |
+| Payload contradicts itself (non-array `accounts`, bad account id, empty regions, a marked pattern without exactly two regions) | Rejected at parse time by `InputError` — nothing is scanned |
 
 ## 9. Output
 
