@@ -96,3 +96,27 @@ def test_environment_vocabulary_is_the_callers_own():
         s = parse_accounts({"accounts": [{
             "account_id": "123456789012", "regions": ["us-east-1"], "environment": value}]})[0]
         assert s.environment == value
+
+
+def test_unresolvable_region_is_rejected_at_parse_time():
+    """A typo must not surface later as 'cannot assume a role', which would
+    blame credentials for a payload error."""
+    with pytest.raises(InputError, match="region"):
+        parse_accounts({"accounts": [{
+            "account_id": "123456789012", "regions": ["ap-south-99"]}]})
+
+
+def test_the_rejection_explains_both_causes():
+    with pytest.raises(InputError) as err:
+        parse_accounts({"accounts": [{
+            "account_id": "123456789012", "regions": ["made-up-9"]}]})
+    message = str(err.value)
+    assert "made-up-9" in message
+    assert "boto3" in message, "a genuinely new region needs the upgrade hint"
+
+
+def test_real_regions_across_partitions_are_accepted():
+    for region in ("us-east-1", "ap-south-2", "cn-north-1", "us-gov-west-1", "eu-central-1"):
+        spec = parse_accounts({"accounts": [{
+            "account_id": "123456789012", "regions": [region]}]})[0]
+        assert spec.regions == [region]

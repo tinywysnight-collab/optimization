@@ -25,10 +25,27 @@ def build_role_arn(account_id: str, role_name: str, partition: str = "aws") -> s
 
 
 @lru_cache
-def _partition_for_region(region: str) -> str:
+def partition_for_region(region: str) -> str:
     from botocore.session import Session
 
     return cast(str, Session().get_partition_for_region(region))
+
+
+@lru_cache
+def known_regions() -> frozenset[str]:
+    """Every region botocore can name, across all partitions it ships.
+
+    `get_partition_for_region` only pattern-matches, so it accepts a plausible
+    typo like `ap-south-99`; this list is what tells a real region from one that
+    merely looks like one.
+    """
+    from botocore.session import Session
+
+    session = Session()
+    regions: set[str] = set()
+    for partition in session.get_available_partitions():
+        regions |= set(session.get_available_regions("sts", partition_name=partition))
+    return frozenset(regions)
 
 
 class AssumeRoleSessionFactory:
@@ -53,7 +70,7 @@ class AssumeRoleSessionFactory:
         role_name = spec.role_name or self._role_name
         params: dict[str, Any] = {
             "RoleArn": build_role_arn(
-                spec.account_id, role_name, _partition_for_region(spec.regions[0])),
+                spec.account_id, role_name, partition_for_region(spec.regions[0])),
             "RoleSessionName": self._session_name,
         }
         if self._external_id:

@@ -93,6 +93,11 @@ def evaluate_rds_multiaz(instances: list[AwsDict], clusters: list[AwsDict], regi
 def evaluate_rds_crossregion(instances: list[AwsDict], clusters: list[AwsDict], global_clusters: list[AwsDict],
                              primary_region: str, declared_regions: list[str]) -> list[ResourceScore]:
     results: list[ResourceScore] = []
+    if len(declared_regions) < 2:
+        raise ValueError(
+            "cross-region scoring needs a designated standby region; "
+            f"got {declared_regions!r}. scan() only reaches here for in-scope "
+            "accounts, which the input loader guarantees have two regions.")
     standby_region = declared_regions[1]
 
     for inst in instances:

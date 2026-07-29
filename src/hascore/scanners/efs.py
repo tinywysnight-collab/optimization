@@ -34,6 +34,11 @@ def evaluate_efs_multiaz(filesystems: list[AwsDict], mount_targets_by_fs: dict[s
 
 def evaluate_efs_crossregion(filesystems: list[AwsDict], replications: list[AwsDict],
                              primary_region: str, declared_regions: list[str]) -> list[ResourceScore]:
+    if len(declared_regions) < 2:
+        raise ValueError(
+            "cross-region scoring needs a designated standby region; "
+            f"got {declared_regions!r}. scan() only reaches here for in-scope "
+            "accounts, which the input loader guarantees have two regions.")
     standby_region = declared_regions[1]
     dest_by_fs: dict[str, set[str]] = {}
     for rep in replications:

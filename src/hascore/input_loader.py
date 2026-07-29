@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .assume_role import known_regions
 from .models import CROSS_REGION_PATTERN, AccountSpec
 
 _ACCOUNT_ID = re.compile(r"^\d{12}$")
@@ -30,6 +31,13 @@ def parse_accounts(payload: dict[str, Any]) -> list[AccountSpec]:
             raise InputError(f"accounts[{i}]: regions must be a non-empty list of strings")
         if len(set(regions)) != len(regions):
             raise InputError(f"accounts[{i}]: primary and standby regions must be distinct")
+        # Catch a typo here, where it reads as the payload error it is, rather
+        # than later as a wall of per-service endpoint failures on that account.
+        unknown = [r for r in regions if r not in known_regions()]
+        if unknown:
+            raise InputError(
+                f"accounts[{i}]: unknown region(s) {unknown}. Check the spelling; "
+                "if the region is genuinely new, upgrade boto3.")
         pattern_id = raw.get("pattern_id")
         if pattern_id is not None and not isinstance(pattern_id, str):
             raise InputError(f"accounts[{i}]: pattern_id must be a string or null")

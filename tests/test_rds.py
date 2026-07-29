@@ -219,3 +219,11 @@ def test_replica_only_in_another_region_is_not_reported_as_no_replicas():
     assert "no read replicas" not in scores["db1"].reason
     assert "outside" in scores["db1"].reason
     assert "cross-region" in scores["db1"].reason
+
+
+def test_crossregion_without_a_standby_region_is_a_contract_violation():
+    """scan() only calls this for in-scope accounts, which the loader guarantees
+    have two regions; reaching it otherwise is a bug, not a silent no-op."""
+    import pytest
+    with pytest.raises(ValueError, match="standby"):
+        evaluate_rds_crossregion([inst("db1")], [], [], R, [R])
