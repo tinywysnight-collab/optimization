@@ -3,10 +3,9 @@
 Date: 2026-07-28
 Status: implemented (v1)
 
-**This document is the source of truth.** Behaviour is changed here first, then in
-the code, and both land in the same commit — see the spec-first workflow in
-`AGENTS.md`. A rule that reads differently here and in `src/` is a defect in this
-document, not a quirk of the implementation.
+**Source of truth.** Behaviour changes here first, then in code, both in the same
+commit (see the spec-first workflow in `AGENTS.md`). Where this and `src/`
+disagree, this document is the defect.
 
 ## 0. Prime directive — read-only, without exception
 
