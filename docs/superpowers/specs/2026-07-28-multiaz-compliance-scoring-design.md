@@ -166,11 +166,19 @@ The split the deployment makes is who holds the master role; the score follows i
   - 1 AZ (zone awareness disabled) → **0**.
 - `ZoneAwarenessEnabled` with no `ZoneAwarenessConfig` is the old-style form and
   counts as **2 AZs**, not one.
-- **Known blind spots, deliberately not detected**: AWS's automatic three-AZ master
-  placement does not hold in regions with only two AZs (e.g. `us-west-1`) or with
-  older instance types unavailable in three AZs — neither is visible in
-  `DescribeDomains`. Index replica counts live in the data-plane API and are not
-  checked; a domain whose indexes have zero replicas can still score 100.
+- **Stated environment assumption**: every region this estate scans has at least
+  three AZs. AWS's automatic three-AZ master placement depends on three existing,
+  so in a two-AZ region (`us-west-1`) masters would land 2+1 and a dedicated-master
+  domain there would score 100 while carrying a documented "50/50 chance of
+  downtime". **Adding a two-AZ region to the payload breaks this assumption** and
+  the check would then need an EC2 `DescribeAvailabilityZones` call.
+- **Known blind spots, deliberately not detected**: an older-generation instance
+  type unavailable in three AZs also forces masters into two zones — but only for a
+  domain that selected **two** AZs, since a three-AZ domain on such a type fails at
+  creation. The inputs are visible (`ClusterConfig.DedicatedMasterType`); what is
+  missing is a maintained list of legacy types. Index replica counts live in the
+  data-plane API and are not checked; a domain whose indexes have zero replicas can
+  still score 100.
 
 ### 5.5 FSx (0–100, Windows type only)
 

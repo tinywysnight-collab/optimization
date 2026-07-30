@@ -329,10 +329,19 @@ restores them leaves no trace in any AWS API.
 `min.insync.replicas` are Kafka Admin API settings. A 3-AZ cluster whose topics
 have RF=1 scores 100 and still loses data with one broker.
 
-**OpenSearch masters in two-AZ regions.** AWS's automatic three-AZ master
-placement needs three AZs to exist. In a region with only two (`us-west-1`), or
-with an older instance type unavailable in three, masters land 2+1 — a documented
-"50/50 chance of downtime". `DescribeDomains` does not reveal which case applies.
+**OpenSearch masters on legacy instance types.** The automatic three-AZ master
+placement also needs the chosen instance type to exist in three AZs. An
+older-generation type that does not forces masters into two zones — a documented
+"50/50 chance of downtime" — but **only for a domain that selected two AZs**: a
+three-AZ domain on such a type fails at creation, so that pairing cannot exist.
+The input is visible (`ClusterConfig.DedicatedMasterType`); what is missing is a
+maintained list of legacy types, which would go stale as fast as it was written.
+
+This entry previously also covered two-AZ regions such as `us-west-1`, where the
+three-AZ placement has nowhere to go. That is now a **stated assumption** rather
+than a blind spot: every region this estate scans has at least three AZs. Adding a
+two-AZ region would reinstate the gap and need an EC2 `DescribeAvailabilityZones`
+call to close it.
 
 None of these is a defect to fix in code; detecting them needs a network path to
 the data plane, or an extra EC2 call plus a legacy instance-type list. They are
