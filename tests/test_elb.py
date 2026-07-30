@@ -24,7 +24,7 @@ def test_nlb_across_two_azs_scores_20():
 def test_single_az_nlb_scores_0_and_exemption_floors():
     lbs = [
         lb("nlb-solo", lb_type="network"),
-        lb("nlb-exempt", lb_type="network", tags={"skip-multiaz": ""}),
+        lb("nlb-exempt", lb_type="network", tags={"skip-multiaz-assessment": ""}),
     ]
     scores = by_id(evaluate_elb_multiaz(lbs, R))
     assert scores["nlb-solo"].score == 0.0
@@ -97,6 +97,6 @@ def test_classic_and_gateway_are_na_in_cross_region_too():
 
 def test_exemption_tag_floors_to_10():
     scores = by_id(evaluate_elb_crossregion(
-        [lb("solo", lb_type="network", tags={"skip-cross-region": ""})],
+        [lb("solo", lb_type="network", tags={"skip-cross-region-assessment": ""})],
         sb("eu-west-1"), R))
     assert scores["solo"].score == 50.0 and scores["solo"].exempted

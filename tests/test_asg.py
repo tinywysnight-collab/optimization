@@ -24,7 +24,7 @@ def test_multi_az_config_scores_20():
 def test_single_az_scores_0_and_exemption_floors():
     groups = [
         group("solo", ["us-east-1a"]),
-        group("exempt", ["us-east-1a"], tags=[("skip-multiaz", "")]),
+        group("exempt", ["us-east-1a"], tags=[("skip-multiaz-assessment", "")]),
     ]
     scores = by_id(evaluate_asg_multiaz(groups, R))
     assert scores["solo"].score == 0.0

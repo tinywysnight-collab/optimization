@@ -84,7 +84,7 @@ def test_za_enabled_without_config_counts_as_two_azs():
 
 def test_exemption_via_tags_by_arn():
     d = domain("exempt")
-    tags = {d["ARN"]: {"skip-multiaz": ""}}
+    tags = {d["ARN"]: {"skip-multiaz-assessment": ""}}
     scores = by_id(evaluate_opensearch_multiaz([d], tags, R))
     assert scores["exempt"].score == 50.0 and scores["exempt"].exempted
 

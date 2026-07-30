@@ -39,8 +39,8 @@ precision the checks do not have.
 one: `max(score, 50)`. Tag key presence is enough — the value is ignored, and
 matching is case-insensitive.
 
-- `skip-multiaz` — the Multi-AZ dimension
-- `skip-cross-region` — the Cross-Region dimension
+- `skip-multiaz-assessment` — the Multi-AZ dimension
+- `skip-cross-region-assessment` — the Cross-Region dimension
 
 For services scored as two halves (EFS), the tag applies to the **resource
 total**, not to each half.

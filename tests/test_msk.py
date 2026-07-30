@@ -51,7 +51,7 @@ def test_serverless_is_na_with_note():
 
 def test_exemption_floors_a_two_az_cluster_no_lower():
     """The tag floors failing scores at 10; a 2-AZ cluster already sits at 10."""
-    tagged = cluster("k2t", subnets=2, tags={"skip-multiaz": ""})
+    tagged = cluster("k2t", subnets=2, tags={"skip-multiaz-assessment": ""})
     s = by_id(evaluate_msk_multiaz([tagged], R))["k2t"]
     assert s.score == 50.0 and s.exempted is False
 
@@ -81,7 +81,7 @@ def test_no_matching_cluster_scores_0():
 
 
 def test_no_match_with_exemption_floors_to_10():
-    tagged = cluster("kt", tags={"skip-cross-region": "yes"})
+    tagged = cluster("kt", tags={"skip-cross-region-assessment": "yes"})
     s = by_id(evaluate_msk_crossregion([tagged], {"ap-south-2": set()}, R))["kt"]
     assert s.score == 50.0 and s.exempted
 

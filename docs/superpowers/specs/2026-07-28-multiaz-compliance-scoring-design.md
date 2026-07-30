@@ -261,8 +261,8 @@ the subnet count is the AZ count (`ZoneIds` wins when present):
 ## 7. Exception (exemption) mechanism
 
 - Each dimension has its own independent tag; they do not affect each other:
-  - Multi-AZ: tag key = `skip-multiaz`
-  - Cross-Region: tag key = `skip-cross-region`
+  - Multi-AZ: tag key = `skip-multiaz-assessment`
+  - Cross-Region: tag key = `skip-cross-region-assessment`
   - The verb is **skip**, not *disable*: the tag suppresses a check, and this tool
     never touches a resource's configuration (§0). A key named `disable-multiaz`
     on a resource reads like an instruction to turn its redundancy off, which is
@@ -270,7 +270,7 @@ the subnet count is the AZ count (`ZoneIds` wins when present):
 - **Key presence alone activates the exemption; the value is ignored.**
 - Semantics are a floor, not a cap: final resource score = `max(actual score, 50)`. A resource that passes its check still gets 100.
 - For split-scored services (EFS, OpenSearch): the exemption applies to the **resource total** (`max(sum of items, 50)`), not per item.
-- Reason wording: "multi-AZ not enabled, but exception tag `skip-multiaz` present; 50/100 per exemption rule".
+- Reason wording: "multi-AZ not enabled, but exception tag `skip-multiaz-assessment` present; 50/100 per exemption rule".
 - **No account-level exemption** (out of scope for v1; if needed, handle via an allowlist at the report layer, never inside the scoring engine).
 
 ## 8. N/A semantics and fault tolerance

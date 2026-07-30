@@ -30,7 +30,7 @@ def test_no_matching_cluster_scores_0():
 
 def test_exemption_tag_floors_to_10():
     scores = by_id(evaluate_eks_crossregion(
-        [cluster("solo", tags={"skip-cross-region": "yes"})], {"ap-south-2": set()}, R))
+        [cluster("solo", tags={"skip-cross-region-assessment": "yes"})], {"ap-south-2": set()}, R))
     assert scores["solo"].score == 50.0 and scores["solo"].exempted
 
 
