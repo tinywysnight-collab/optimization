@@ -1,4 +1,4 @@
-"""OpenSearch evaluators (spec §5.4, §6): data plane 50 + control plane 50; name-matching cross-region."""
+"""OpenSearch evaluators (spec §5.4, §6): one score per domain, forked on who holds the master role; name-matching cross-region."""
 from __future__ import annotations
 
 from typing import Any

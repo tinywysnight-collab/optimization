@@ -143,7 +143,7 @@ For each dimension (Multi-AZ, Cross-Region) independently:
 
 - **Judged by configuration** (not momentary runtime state): associated subnets/AZs cover ≥2 AZs → 100; otherwise 0.
 - ASGs belonging to EKS node groups / ECS capacity providers are **not excluded** from the Multi-AZ dimension; they are scored normally with their origin noted in the reason (based on tags such as `eks:cluster-name`). AZ coverage is a genuine per-node-group configuration decision. (The Cross-Region dimension treats EKS differently — see §6.)
-- Example reason: "configuration covers us-east-1a/1b/1c (3 AZs), score 20".
+- Example reason: "configuration covers us-east-1a/1b/1c (3 AZs), score 100".
 
 ### 5.4 OpenSearch (0–100, single score per domain)
 
@@ -170,7 +170,7 @@ The split the deployment makes is who holds the master role; the score follows i
   placement does not hold in regions with only two AZs (e.g. `us-west-1`) or with
   older instance types unavailable in three AZs — neither is visible in
   `DescribeDomains`. Index replica counts live in the data-plane API and are not
-  checked; a domain whose indexes have zero replicas can still score 20.
+  checked; a domain whose indexes have zero replicas can still score 100.
 
 ### 5.5 FSx (0–100, Windows type only)
 
@@ -211,7 +211,7 @@ the subnet count is the AZ count (`ZoneIds` wins when present):
 - **Known blind spot, stated in every reason**: topic `replication.factor` and
   `min.insync.replicas` live in the Kafka data plane (Admin API) and are invisible
   to the control plane — the same class of blind spot as OpenSearch index replica
-  counts. A 3-AZ cluster whose topics have RF=1 still scores 20.
+  counts. A 3-AZ cluster whose topics have RF=1 still scores 100.
 
 ## 6. Cross-Region dimension criteria (0–100, independent of the Multi-AZ score)
 
@@ -263,13 +263,14 @@ the subnet count is the AZ count (`ZoneIds` wins when present):
 - Each dimension has its own independent tag; they do not affect each other:
   - Multi-AZ: tag key = `skip-multiaz-assessment`
   - Cross-Region: tag key = `skip-cross-region-assessment`
-  - The verb is **skip**, not *disable*: the tag suppresses a check, and this tool
-    never touches a resource's configuration (§0). A key named `disable-multiaz`
-    on a resource reads like an instruction to turn its redundancy off, which is
-    the opposite of what it does and the opposite of what this tool can do.
+  - The key names the **assessment**, not the feature. `disable-multiaz` would read
+    as an instruction to turn a resource's redundancy off — the opposite of what
+    the tag does, and of what this tool can do at all (§0 forbids any write). Even
+    a bare `skip-multiaz` can be read as "this resource need not be multi-AZ";
+    naming the assessment leaves one reading: do not evaluate this.
 - **Key presence alone activates the exemption; the value is ignored.**
 - Semantics are a floor, not a cap: final resource score = `max(actual score, 50)`. A resource that passes its check still gets 100.
-- For split-scored services (EFS, OpenSearch): the exemption applies to the **resource total** (`max(sum of items, 50)`), not per item.
+- For the one split-scored service (EFS, two halves of 50): the exemption applies to the **resource total** (`max(sum of halves, 50)`), not per half.
 - Reason wording: "multi-AZ not enabled, but exception tag `skip-multiaz-assessment` present; 50/100 per exemption rule".
 - **No account-level exemption** (out of scope for v1; if needed, handle via an allowlist at the report layer, never inside the scoring engine).
 

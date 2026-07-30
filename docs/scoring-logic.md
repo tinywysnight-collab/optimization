@@ -316,7 +316,7 @@ are backups, not a standby, and DataSync runs above the API — so only the
 
 # Blind spots
 
-Three things this tool cannot see. Each can make a resource score 20 while it
+Three things this tool cannot see. Each can make a resource score 100 while it
 would still lose data or availability.
 
 **OpenSearch index replica counts.** A domain spanning three AZs whose indexes
@@ -327,7 +327,7 @@ restores them leaves no trace in any AWS API.
 
 **MSK topic replication.** Same shape: `replication.factor` and
 `min.insync.replicas` are Kafka Admin API settings. A 3-AZ cluster whose topics
-have RF=1 scores 20 and still loses data with one broker.
+have RF=1 scores 100 and still loses data with one broker.
 
 **OpenSearch masters in two-AZ regions.** AWS's automatic three-AZ master
 placement needs three AZs to exist. In a region with only two (`us-west-1`), or
@@ -336,5 +336,5 @@ with an older instance type unavailable in three, masters land 2+1 — a documen
 
 None of these is a defect to fix in code; detecting them needs a network path to
 the data plane, or an extra EC2 call plus a legacy instance-type list. They are
-recorded here, and in the reasons, so no one reads a 20 as more assurance than it
+recorded here, and in the reasons, so no one reads a 100 as more assurance than it
 carries.
