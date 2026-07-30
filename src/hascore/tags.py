@@ -1,10 +1,15 @@
-"""Exception-tag (exemption) semantics: a floor of 50, never a cap."""
+"""Exception-tag (exemption) semantics: a floor of 50, never a cap.
+
+The keys say *skip*, not *disable*: the tag suppresses a check. This tool never
+alters a resource's configuration (spec §0), so a key reading `disable-multiaz`
+would name the opposite of what it does and of what the tool is able to do.
+"""
 from __future__ import annotations
 
 from .models import AwsDict
 
-MULTIAZ_TAG = "disable-multiaz"
-CROSSREGION_TAG = "disable-crossregion"
+MULTIAZ_TAG = "skip-multiaz"
+CROSSREGION_TAG = "skip-cross-region"
 EXEMPT_FLOOR = 50.0
 
 

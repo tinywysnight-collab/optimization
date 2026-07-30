@@ -25,7 +25,7 @@ def test_windows_multi_az_scores_20():
 def test_windows_single_az_scores_0_and_exemption_floors():
     filesystems = [
         fs("fs-1", deployment="SINGLE_AZ_2"),
-        fs("fs-2", deployment="SINGLE_AZ_2", tags=[("disable-multiaz", "")]),
+        fs("fs-2", deployment="SINGLE_AZ_2", tags=[("skip-multiaz", "")]),
     ]
     scores = by_id(evaluate_fsx_multiaz(filesystems, R))
     assert scores["fs-1"].score == 0.0
@@ -67,7 +67,7 @@ def test_windows_without_name_tag_scores_0_not_na():
 
 
 def test_cross_region_exemption_floors_to_10():
-    filesystems = [fs("fs-1", tags=[("Name", "share"), ("disable-crossregion", "")])]
+    filesystems = [fs("fs-1", tags=[("Name", "share"), ("skip-cross-region", "")])]
     scores = by_id(evaluate_fsx_crossregion(filesystems, {"eu-west-1": set()}, R))
     assert scores["fs-1"].score == 50.0 and scores["fs-1"].exempted
 

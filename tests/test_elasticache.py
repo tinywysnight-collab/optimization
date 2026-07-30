@@ -39,7 +39,7 @@ def test_replication_group_multi_az_enabled_scores_20():
 
 
 def test_replication_group_multi_az_disabled_scores_0_exemption_floors():
-    tags = {"arn:aws:elasticache:us-east-1:1:replicationgroup:rg-2": {"disable-multiaz": ""}}
+    tags = {"arn:aws:elasticache:us-east-1:1:replicationgroup:rg-2": {"skip-multiaz": ""}}
     scores = by_id(evaluate_elasticache_multiaz(
         [rg("rg-1", multi_az="disabled"), rg("rg-2", multi_az="disabled")], [], [], tags, R))
     assert scores["rg-1"].score == 0.0

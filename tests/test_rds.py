@@ -54,7 +54,7 @@ def test_same_az_replica_scores_0_with_explicit_reason():
 
 
 def test_no_ha_scores_0_and_exemption_tag_floors_to_10():
-    instances = [inst("db1"), inst("db2", tags=[("disable-multiaz", "")])]
+    instances = [inst("db1"), inst("db2", tags=[("skip-multiaz", "")])]
     scores = by_id(evaluate_rds_multiaz(instances, [], R))
     assert scores["db1"].score == 0.0
     assert scores["db2"].score == 50.0 and scores["db2"].exempted
@@ -135,7 +135,7 @@ def test_cross_region_replica_outside_the_designated_standby_scores_0():
 
 def test_no_cross_region_replica_scores_0_and_exemption_applies():
     scores = by_id(evaluate_rds_crossregion(
-        [inst("db1", tags=[("disable-crossregion", "")])], [], [], R, ["us-east-1", "eu-west-1"]))
+        [inst("db1", tags=[("skip-cross-region", "")])], [], [], R, ["us-east-1", "eu-west-1"]))
     assert scores["db1"].score == 50.0 and scores["db1"].exempted
 
 
