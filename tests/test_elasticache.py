@@ -35,7 +35,7 @@ def global_group(global_id, *regions):
 
 def test_replication_group_multi_az_enabled_scores_20():
     scores = by_id(evaluate_elasticache_multiaz([rg("rg-1")], [], [], {}, R))
-    assert scores["rg-1"].score == 20.0
+    assert scores["rg-1"].score == 100.0
 
 
 def test_replication_group_multi_az_disabled_scores_0_exemption_floors():
@@ -43,7 +43,7 @@ def test_replication_group_multi_az_disabled_scores_0_exemption_floors():
     scores = by_id(evaluate_elasticache_multiaz(
         [rg("rg-1", multi_az="disabled"), rg("rg-2", multi_az="disabled")], [], [], tags, R))
     assert scores["rg-1"].score == 0.0
-    assert scores["rg-2"].score == 10.0 and scores["rg-2"].exempted
+    assert scores["rg-2"].score == 50.0 and scores["rg-2"].exempted
 
 
 def test_standalone_redis_scores_0_member_clusters_skipped():
@@ -75,7 +75,7 @@ def test_global_datastore_member_scores_20_cross_region():
     scores = by_id(evaluate_elasticache_crossregion(
         [rg("rg-1", global_id="gd-xyz")], [], [], {},
         [global_group("gd-xyz", R, "eu-west-1")], R, "eu-west-1"))
-    assert scores["rg-1"].score == 20.0
+    assert scores["rg-1"].score == 100.0
     assert "gd-xyz" in scores["rg-1"].reason
 
 

@@ -13,19 +13,19 @@ def test_tags_to_dict_handles_none_and_empty():
 
 def test_exemption_raises_failing_score_to_floor_of_10():
     score, exempted, suffix = apply_exemption(0.0, {"disable-multiaz": "true"}, MULTIAZ_TAG)
-    assert score == 10.0
+    assert score == 50.0
     assert exempted is True
     assert "disable-multiaz" in suffix
 
 
 def test_exemption_tag_key_is_case_insensitive_and_value_ignored():
     score, exempted, _ = apply_exemption(0.0, {"Disable-MultiAZ": "whatever"}, MULTIAZ_TAG)
-    assert (score, exempted) == (10.0, True)
+    assert (score, exempted) == (50.0, True)
 
 
 def test_exemption_is_floor_not_cap():
-    score, exempted, suffix = apply_exemption(20.0, {"disable-multiaz": ""}, MULTIAZ_TAG)
-    assert (score, exempted, suffix) == (20.0, False, "")
+    score, exempted, suffix = apply_exemption(100.0, {"disable-multiaz": ""}, MULTIAZ_TAG)
+    assert (score, exempted, suffix) == (100.0, False, "")
 
 
 def test_no_tag_no_exemption():

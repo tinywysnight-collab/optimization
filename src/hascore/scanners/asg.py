@@ -27,7 +27,7 @@ def evaluate_asg_multiaz(groups: list[AwsDict], region: str) -> list[ResourceSco
         azs = sorted(set(g.get("AvailabilityZones", [])))
         origin = f" (EKS node group ASG, cluster '{tags[EKS_CLUSTER_TAG]}')" if EKS_CLUSTER_TAG in tags else ""
         if len(azs) >= 2:
-            score = 20.0
+            score = 100.0
             reason = f"configuration covers {len(azs)} AZs: {', '.join(azs)}{origin}"
         else:
             score = 0.0
@@ -49,7 +49,7 @@ def evaluate_asg_crossregion(groups: list[AwsDict], standby_names: dict[str, set
         mv = strip_region(name)
         hits = sorted(r for r, names in standby_names.items() if mv in names)
         if hits:
-            score = 20.0
+            score = 100.0
             reason = (f"name-matching heuristic: after region-stripping ('{mv}'), "
                       f"a matching ASG exists in {', '.join(hits)}")
         else:

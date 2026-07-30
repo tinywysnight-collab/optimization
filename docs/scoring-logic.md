@@ -12,7 +12,7 @@ workflow in `AGENTS.md`.
 
 ## How the numbers combine
 
-Every resource scores **0–20**, or **N/A**. The two are never mixed up:
+Every resource scores **0–100**, or **N/A**. The two are never mixed up:
 
 | | Meaning | Effect on the account score |
 |---|---|---|
@@ -29,8 +29,14 @@ Two levels of averaging, per dimension:
 
 Both are rounded to one decimal.
 
+The unit is deliberately the same one the final organization-wide score is
+reported in, so rolling several dimensions together is a weighted mean with no
+rescaling. Granularity stays coarse — the judgements underneath are pass /
+partial / fail, so scores land on **100 / 50 / 0** rather than implying a
+precision the checks do not have.
+
 **Exemption tags** put a floor under a failing score, never a cap on a passing
-one: `max(score, 10)`. Tag key presence is enough — the value is ignored, and
+one: `max(score, 50)`. Tag key presence is enough — the value is ignored, and
 matching is case-insensitive.
 
 - `disable-multiaz` — the Multi-AZ dimension
@@ -58,7 +64,7 @@ does not satisfy the check, and the reason says where it actually is.
 
 Scans `regions[0]` only.
 
-## RDS — max 20
+## RDS  — 0–100
 
 Two kinds of scoring unit. **Read replicas and DB cluster members are never
 scored on their own** (`DBClusterIdentifier` set, or
@@ -69,8 +75,8 @@ the very redundancy the primary was credited for.
 
 | Condition | Score |
 |---|---|
-| `MultiAZ == true` | **20** |
-| A read replica in a **different AZ** of this region | **20** |
+| `MultiAZ == true` | **100** |
+| A read replica in a **different AZ** of this region | **100** |
 | Replicas exist but all share the primary's AZ | **0** |
 | Replicas exist only in other regions | **0** |
 | No replicas | **0** |
@@ -89,18 +95,18 @@ differently:
 - **RDS Multi-AZ DB cluster** (MySQL/PostgreSQL) — `MultiAZ` must be true **and**
   members must span ≥2 AZs.
 
-Either way: ≥2 member AZs → **20**, otherwise **0**. A cluster whose members'
+Either way: ≥2 member AZs → **100**, otherwise **0**. A cluster whose members'
 AZs cannot be resolved says so rather than claiming one AZ.
 
 A cluster with `ReplicationSourceIdentifier` is itself a replication target and
 is skipped, for the same reason replicas are.
 
-## EFS — two halves of 10
+## EFS — two halves of 50
 
 | Half | Field | Full marks |
 |---|---|---|
-| Storage redundancy | `AvailabilityZoneId` absent → Regional | **10** |
-| Mount target coverage | mount targets in ≥2 AZs | **10** |
+| Storage redundancy | `AvailabilityZoneId` absent → Regional | **50** |
+| Mount target coverage | mount targets in ≥2 AZs | **50** |
 
 Regional storage replicates across AZs; One Zone does not. But data surviving is
 not the same as data being reachable: with mount targets in one AZ only, clients
@@ -113,9 +119,9 @@ Mount target AZs are read from `AvailabilityZoneId`, falling back to
 `AvailabilityZoneName` only when no entry has an ID — mixing the two forms would
 count one physical AZ twice and manufacture a passing score.
 
-## ASG — max 20
+## ASG  — 0–100
 
-Configured AZs (`AvailabilityZones`) ≥2 → **20**, otherwise **0**.
+Configured AZs (`AvailabilityZones`) ≥2 → **100**, otherwise **0**.
 
 Judged by **configuration, not running instances**. A group with desired capacity
 1 spanning three AZs still recovers into another AZ; scoring live instances would
@@ -126,7 +132,7 @@ EKS node group ASGs are **scored normally here** — their AZ coverage is a real
 per-node-group decision — with the owning cluster named in the reason. (The
 Cross-Region dimension treats EKS differently; see below.)
 
-## OpenSearch — max 20
+## OpenSearch  — 0–100
 
 The rule forks on **who holds the master role**.
 
@@ -138,7 +144,7 @@ data-node spread, and it is binary:
 
 | Data nodes | Score |
 |---|---|
-| ≥2 AZs (zone awareness on) | **20** |
+| ≥2 AZs (zone awareness on) | **100** |
 | Single AZ | **0** |
 
 A healthy control plane over non-redundant data is not high availability: quorum
@@ -155,26 +161,26 @@ survives:
 
 | Data nodes | Score | Why |
 |---|---|---|
-| 3 AZs | **20** | A majority survives any single-AZ loss |
-| 2 AZs | **10** | A partition risks split-brain, and losing the larger AZ loses quorum |
+| 3 AZs | **100** | A majority survives any single-AZ loss |
+| 2 AZs | **50** | A partition risks split-brain, and losing the larger AZ loses quorum |
 | 1 AZ | **0** | No redundancy |
 
 `ZoneAwarenessEnabled` with no `ZoneAwarenessConfig` is the old-style form and
 counts as **2 AZs**, not one.
 
-## FSx — max 20, Windows only
+## FSx  — 0–100, Windows only
 
-`WindowsConfiguration.DeploymentType` contains `MULTI_AZ` → **20**, else **0**.
+`WindowsConfiguration.DeploymentType` contains `MULTI_AZ` → **100**, else **0**.
 
 **Lustre, ONTAP and OpenZFS record N/A** and are listed with their type. Lustre
 in particular has no multi-AZ deployment at all, so a 0 would be a permanent
 score against something with no remedy.
 
-## ElastiCache — max 20, Redis/Valkey only
+## ElastiCache  — 0–100, Redis/Valkey only
 
 | Resource | Score |
 |---|---|
-| Replication group with `MultiAZ == "enabled"` | **20** |
+| Replication group with `MultiAZ == "enabled"` | **100** |
 | Replication group otherwise | **0** |
 | Standalone Redis/Valkey node (no replication group) | **0** |
 | Memcached, and other engines | **N/A** |
@@ -191,19 +197,19 @@ not a concept that applies; Serverless has no user-facing HA setting.
 
 Engine matching is case-insensitive.
 
-## ELB — max 20, NLB only
+## ELB  — 0–100, NLB only
 
 Scope for both dimensions is **NLB and ALB**. Classic and Gateway load balancers
 record **N/A** everywhere.
 
-Of those two, only the NLB is scored here: enabled AZs ≥2 → **20**, else **0**.
+Of those two, only the NLB is scored here: enabled AZs ≥2 → **100**, else **0**.
 
 **ALB records N/A in this dimension.** AWS requires at least two AZ subnets at
 creation, so there is no configuration lever to assess and every ALB would score
 full marks, diluting the real failures elsewhere. It *is* scored in the
 Cross-Region dimension, where having a standby is a genuine decision.
 
-## MSK — max 20, provisioned only
+## MSK  — 0–100, provisioned only
 
 Broker AZ spread, from `ZoneIds` when present, otherwise the count of
 `ClientSubnets` (MSK requires every subnet in a distinct AZ, so the count is the
@@ -211,8 +217,8 @@ AZ count):
 
 | Brokers | Score |
 |---|---|
-| 3 AZs | **20** |
-| 2 AZs | **10** |
+| 3 AZs | **100** |
+| 2 AZs | **50** |
 | fewer | **0** |
 
 Two AZs is a real write-availability risk, not just a preference: replicas of a

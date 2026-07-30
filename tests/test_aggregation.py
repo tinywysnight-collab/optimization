@@ -7,8 +7,8 @@ def rs(service, score):
 
 
 def test_service_scores_average_within_service():
-    scores = compute_service_scores([rs("rds", 20.0), rs("rds", 0.0), rs("asg", 20.0)])
-    assert scores == {"rds": 10.0, "asg": 20.0}
+    scores = compute_service_scores([rs("rds", 100.0), rs("rds", 0.0), rs("asg", 100.0)])
+    assert scores == {"rds": 50.0, "asg": 100.0}
 
 
 def test_service_with_only_na_resources_is_na():
@@ -17,12 +17,12 @@ def test_service_with_only_na_resources_is_na():
 
 
 def test_na_resources_excluded_from_service_mean():
-    scores = compute_service_scores([rs("elasticache", 20.0), rs("elasticache", None)])
-    assert scores == {"elasticache": 20.0}
+    scores = compute_service_scores([rs("elasticache", 100.0), rs("elasticache", None)])
+    assert scores == {"elasticache": 100.0}
 
 
 def test_account_score_equal_weight_mean_of_non_na_dimensions():
-    assert compute_account_score({"rds": 10.0, "asg": 20.0, "fsx": None}) == 15.0
+    assert compute_account_score({"rds": 50.0, "asg": 100.0, "fsx": None}) == 75.0
 
 
 def test_account_score_all_na_is_na():
@@ -31,7 +31,7 @@ def test_account_score_all_na_is_na():
 
 
 def test_finalize_dimension_populates_fields():
-    dim = DimensionResult(MULTI_AZ, resources=[rs("rds", 20.0), rs("rds", 10.0)])
+    dim = DimensionResult(MULTI_AZ, resources=[rs("rds", 100.0), rs("rds", 50.0)])
     finalize_dimension(dim)
-    assert dim.service_scores == {"rds": 15.0}
-    assert dim.account_score == 15.0
+    assert dim.service_scores == {"rds": 75.0}
+    assert dim.account_score == 75.0

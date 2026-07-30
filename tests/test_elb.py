@@ -17,7 +17,7 @@ def by_id(scores):
 def test_nlb_across_two_azs_scores_20():
     scores = by_id(evaluate_elb_multiaz(
         [lb("nlb-1", lb_type="network", azs=["us-east-1a", "us-east-1b"])], R))
-    assert scores["nlb-1"].score == 20.0
+    assert scores["nlb-1"].score == 100.0
     assert "2 AZ" in scores["nlb-1"].reason
 
 
@@ -28,7 +28,7 @@ def test_single_az_nlb_scores_0_and_exemption_floors():
     ]
     scores = by_id(evaluate_elb_multiaz(lbs, R))
     assert scores["nlb-solo"].score == 0.0
-    assert scores["nlb-exempt"].score == 10.0 and scores["nlb-exempt"].exempted
+    assert scores["nlb-exempt"].score == 50.0 and scores["nlb-exempt"].exempted
 
 
 def test_alb_is_na_because_aws_enforces_two_azs():
@@ -56,7 +56,7 @@ def test_name_match_scores_20_with_heuristic_reason():
     scores = by_id(evaluate_elb_crossregion(
         [lb("myapp-us-east-1-alb", lb_type="application")],
         sb("eu-west-1", ("application", "myapp-alb")), R))
-    assert scores["myapp-us-east-1-alb"].score == 20.0
+    assert scores["myapp-us-east-1-alb"].score == 100.0
     assert "heuristic" in scores["myapp-us-east-1-alb"].reason
     assert "eu-west-1" in scores["myapp-us-east-1-alb"].reason
 
@@ -75,7 +75,7 @@ def test_nlb_matches_nlb():
     scores = by_id(evaluate_elb_crossregion(
         [lb("myapp-nlb", lb_type="network")],
         sb("eu-west-1", ("network", "myapp-nlb")), R))
-    assert scores["myapp-nlb"].score == 20.0
+    assert scores["myapp-nlb"].score == 100.0
 
 
 def test_no_match_scores_0():
@@ -99,4 +99,4 @@ def test_exemption_tag_floors_to_10():
     scores = by_id(evaluate_elb_crossregion(
         [lb("solo", lb_type="network", tags={"disable-crossregion": ""})],
         sb("eu-west-1"), R))
-    assert scores["solo"].score == 10.0 and scores["solo"].exempted
+    assert scores["solo"].score == 50.0 and scores["solo"].exempted

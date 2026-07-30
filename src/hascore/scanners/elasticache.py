@@ -21,7 +21,7 @@ def evaluate_elasticache_multiaz(replication_groups: list[AwsDict], cache_cluste
         tags = tags_by_arn.get(group.get("ARN", ""), {})
         state = group.get("MultiAZ", "disabled")
         if state == "enabled":
-            score, reason = 20.0, "replication group MultiAZ is enabled"
+            score, reason = 100.0, "replication group MultiAZ is enabled"
         else:
             score, reason = 0.0, f"replication group MultiAZ is {state}"
         score, exempted, suffix = apply_exemption(score, tags, MULTIAZ_TAG)
@@ -73,7 +73,7 @@ def evaluate_elasticache_crossregion(replication_groups: list[AwsDict], cache_cl
         global_id = (group.get("GlobalReplicationGroupInfo") or {}).get("GlobalReplicationGroupId")
         member_regions = member_regions_by_global_id.get(global_id, set())
         if global_id and standby_region in member_regions:
-            score = 20.0
+            score = 100.0
             reason = (f"member of Global Datastore '{global_id}' with a member in "
                       f"designated standby {standby_region}")
         elif global_id and member_regions:

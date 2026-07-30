@@ -129,10 +129,10 @@
 </head>
 <body>
 
-{#- Score bands: >=15 good, >=10 partial, else bad. None is N/A, never a zero. -#}
-{% macro band(v) %}{% if v is none %}na{% elif v >= 15 %}good{% elif v >= 10 %}partial{% else %}bad{% endif %}{% endmacro %}
+{#- Score bands: >=75 good, >=50 partial, else bad. None is N/A, never a zero. -#}
+{% macro band(v) %}{% if v is none %}na{% elif v >= 75 %}good{% elif v >= 50 %}partial{% else %}bad{% endif %}{% endmacro %}
 {% macro score_cell(v) %}<td class="score s-{{ band(v) }} num">{{ "N/A" if v is none else v }}</td>{% endmacro %}
-{% macro chip(label, v) %}<span class="chip chip-{{ band(v) }}">{{ label }} {{ "N/A" if v is none else v }}/20</span>{% endmacro %}
+{% macro chip(label, v) %}<span class="chip chip-{{ band(v) }}">{{ label }} {{ "N/A" if v is none else v }}/100</span>{% endmacro %}
 
 <header class="top">
   <div class="wrap">
@@ -161,7 +161,7 @@
   <table id="summary">
     <thead>
       <tr><th>Account</th><th>Environment</th><th>Pattern</th><th>Regions</th><th>Application</th>
-          <th>Multi-AZ /20</th><th>Cross-Region /20</th><th></th></tr>
+          <th>Multi-AZ /100</th><th>Cross-Region /100</th><th></th></tr>
     </thead>
     <tbody>
     {% for a in report.accounts %}
@@ -204,7 +204,7 @@
     {% if dim.service_scores %}
     <div class="scroll">
     <table>
-      <thead><tr><th>Service</th><th>Dimension score /20</th></tr></thead>
+      <thead><tr><th>Service</th><th>Dimension score /100</th></tr></thead>
       <tbody>
       {% for svc, sc in dim.service_scores.items() %}
         <tr><td>{{ svc }}</td>{{ score_cell(sc) }}</tr>

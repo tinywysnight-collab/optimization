@@ -17,7 +17,7 @@ def by_id(scores):
 
 def test_multi_az_config_scores_20():
     scores = by_id(evaluate_asg_multiaz([group("web", ["us-east-1a", "us-east-1b"])], R))
-    assert scores["web"].score == 20.0
+    assert scores["web"].score == 100.0
     assert "2 AZ" in scores["web"].reason
 
 
@@ -28,7 +28,7 @@ def test_single_az_scores_0_and_exemption_floors():
     ]
     scores = by_id(evaluate_asg_multiaz(groups, R))
     assert scores["solo"].score == 0.0
-    assert scores["exempt"].score == 10.0 and scores["exempt"].exempted
+    assert scores["exempt"].score == 50.0 and scores["exempt"].exempted
 
 
 def test_eks_origin_noted_in_reason():
@@ -46,7 +46,7 @@ def test_cross_region_name_match_scores_20():
     g = group("myapp-us-east-1-web", ["us-east-1a"])
     standby = {"eu-west-1": {"myapp-web"}}
     scores = by_id(evaluate_asg_crossregion([g], standby, R))
-    assert scores["myapp-us-east-1-web"].score == 20.0
+    assert scores["myapp-us-east-1-web"].score == 100.0
     assert "heuristic" in scores["myapp-us-east-1-web"].reason
     assert "eu-west-1" in scores["myapp-us-east-1-web"].reason
 

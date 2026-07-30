@@ -21,13 +21,13 @@ def by_id(scores):
 
 def test_regional_with_two_az_mount_targets_scores_20():
     scores = by_id(evaluate_efs_multiaz([fs("fs-1")], {"fs-1": [mt("use1-az1"), mt("use1-az2")]}, R))
-    assert scores["fs-1"].score == 20.0
+    assert scores["fs-1"].score == 100.0
     assert "Regional" in scores["fs-1"].reason and "2 AZ" in scores["fs-1"].reason
 
 
 def test_regional_with_single_az_mount_target_scores_10():
     scores = by_id(evaluate_efs_multiaz([fs("fs-1")], {"fs-1": [mt("use1-az1")]}, R))
-    assert scores["fs-1"].score == 10.0
+    assert scores["fs-1"].score == 50.0
 
 
 def test_one_zone_scores_0():
@@ -39,13 +39,13 @@ def test_one_zone_scores_0():
 def test_exemption_applies_to_resource_total():
     scores = by_id(evaluate_efs_multiaz(
         [fs("fs-1", one_zone=True, tags=[("disable-multiaz", "")])], {"fs-1": []}, R))
-    assert scores["fs-1"].score == 10.0 and scores["fs-1"].exempted
+    assert scores["fs-1"].score == 50.0 and scores["fs-1"].exempted
 
 
 def test_cross_region_replication_scores_20():
     reps = [{"SourceFileSystemId": "fs-1", "Destinations": [{"Region": "eu-west-1"}]}]
     scores = by_id(evaluate_efs_crossregion([fs("fs-1")], reps, R, ["us-east-1", "eu-west-1"]))
-    assert scores["fs-1"].score == 20.0
+    assert scores["fs-1"].score == 100.0
     assert "eu-west-1" in scores["fs-1"].reason
 
 
@@ -70,4 +70,4 @@ def test_mixed_az_id_and_name_do_not_double_count():
     targets = [{"AvailabilityZoneId": "use1-az1"},
                {"AvailabilityZoneName": "us-east-1a"}]
     scores = by_id(evaluate_efs_multiaz([fs("fs-1")], {"fs-1": targets}, R))
-    assert scores["fs-1"].score == 10.0  # storage 10 + mount targets 0
+    assert scores["fs-1"].score == 50.0  # storage 10 + mount targets 0

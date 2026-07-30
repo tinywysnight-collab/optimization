@@ -1,4 +1,4 @@
-"""MSK evaluators (spec §5.8, §6): broker AZ spread tiered 20/10/0; name-matching cross-region.
+"""MSK evaluators (spec §5.8, §6): broker AZ spread tiered 100/50/0; name-matching cross-region.
 
 Clusters are passed as normalized dicts:
 {"name": str, "arn": str, "type": "PROVISIONED"|"SERVERLESS", "subnets": list[str],
@@ -46,11 +46,11 @@ def evaluate_msk_multiaz(clusters: list[AwsDict], region: str) -> list[ResourceS
             continue
         azs = _az_count(c)
         if azs >= 3:
-            score = 20.0
+            score = 100.0
             reason = ("brokers span 3 AZs (MSK enforces one distinct AZ per subnet); "
                       "ZooKeeper/KRaft controllers are AWS-managed")
         elif azs == 2:
-            score = 10.0
+            score = 50.0
             reason = ("brokers span only 2 AZs — replicas of a replication-factor-3 topic "
                       "split 2+1, and losing the majority AZ leaves one in-sync replica, "
                       "so min.insync.replicas=2 blocks producers; MSK recommends three AZs")
@@ -75,7 +75,7 @@ def evaluate_msk_crossregion(clusters: list[AwsDict], standby_names: dict[str, s
         mv = strip_region(name)
         hits = sorted(r for r, names in standby_names.items() if mv in names)
         if hits:
-            score = 20.0
+            score = 100.0
             reason = (f"name-matching heuristic: after region-stripping ('{mv}'), a matching "
                       f"MSK cluster exists in {', '.join(hits)}")
         else:

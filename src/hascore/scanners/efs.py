@@ -18,15 +18,15 @@ def evaluate_efs_multiaz(filesystems: list[AwsDict], mount_targets_by_fs: dict[s
         fsid = fs["FileSystemId"]
         tags = tags_to_dict(fs.get("Tags"))
         one_zone = bool(fs.get("AvailabilityZoneId"))
-        storage_pts = 0 if one_zone else 10
+        storage_pts = 0 if one_zone else 50
         mts = mount_targets_by_fs.get(fsid, [])
         mt_azs = {mt["AvailabilityZoneId"] for mt in mts if mt.get("AvailabilityZoneId")}
         if not mt_azs:
             mt_azs = {mt.get("AvailabilityZoneName") for mt in mts} - {None}
-        mt_pts = 10 if len(mt_azs) >= 2 else 0
+        mt_pts = 50 if len(mt_azs) >= 2 else 0
         storage_word = "One Zone" if one_zone else "Regional"
-        reason = (f"{storage_word} storage class ({storage_pts}/10); "
-                  f"mount targets in {len(mt_azs)} AZ(s) ({mt_pts}/10)")
+        reason = (f"{storage_word} storage class ({storage_pts}/50); "
+                  f"mount targets in {len(mt_azs)} AZ(s) ({mt_pts}/50)")
         score, exempted, suffix = apply_exemption(float(storage_pts + mt_pts), tags, MULTIAZ_TAG)
         results.append(ResourceScore(SERVICE, fsid, region, score, reason + suffix, exempted))
     return results
@@ -54,7 +54,7 @@ def evaluate_efs_crossregion(filesystems: list[AwsDict], replications: list[AwsD
         dests = dest_by_fs.get(fsid, set())
         if standby_region in dests:
             reason = f"EFS replication configured to designated standby {standby_region}"
-            score = 20.0
+            score = 100.0
         elif dests:
             score = 0.0
             reason = (f"EFS replication configured to {', '.join(sorted(dests))}, but not "

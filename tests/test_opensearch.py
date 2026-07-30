@@ -27,7 +27,7 @@ def test_dedicated_masters_with_cross_az_data_nodes_score_20():
     for az in (2, 3):
         d = domain(f"d{az}", za=True, az_count=az, dedicated=True, master_count=3)
         scores = by_id(evaluate_opensearch_multiaz([d], {}, R))
-        assert scores[f"d{az}"].score == 20.0, f"{az} AZs should be full marks"
+        assert scores[f"d{az}"].score == 100.0, f"{az} AZs should be full marks"
 
 
 def test_dedicated_masters_with_single_az_data_nodes_score_0():
@@ -46,7 +46,7 @@ def test_unusual_dedicated_master_count_is_advisory_only():
     for count in (1, 2, 4):
         d = domain(f"m{count}", za=True, az_count=3, dedicated=True, master_count=count)
         s = by_id(evaluate_opensearch_multiaz([d], {}, R))[f"m{count}"]
-        assert s.score == 20.0, f"{count} masters must not change the score"
+        assert s.score == 100.0, f"{count} masters must not change the score"
         assert "master" in s.reason and "3 or 5" in s.reason
     ok = domain("m3", za=True, az_count=3, dedicated=True, master_count=3)
     assert "3 or 5" not in by_id(evaluate_opensearch_multiaz([ok], {}, R))["m3"].reason
@@ -55,7 +55,7 @@ def test_unusual_dedicated_master_count_is_advisory_only():
 def test_no_dedicated_masters_three_azs_score_20():
     d = domain("dn3", za=True, az_count=3, instance_count=3)
     scores = by_id(evaluate_opensearch_multiaz([d], {}, R))
-    assert scores["dn3"].score == 20.0
+    assert scores["dn3"].score == 100.0
 
 
 def test_no_dedicated_masters_two_azs_score_10_for_split_brain_risk():
@@ -63,7 +63,7 @@ def test_no_dedicated_masters_two_azs_score_10_for_split_brain_risk():
     partition can leave neither side with a clear majority."""
     d = domain("dn2", za=True, az_count=2, instance_count=4)
     scores = by_id(evaluate_opensearch_multiaz([d], {}, R))
-    assert scores["dn2"].score == 10.0
+    assert scores["dn2"].score == 50.0
     assert "split-brain" in scores["dn2"].reason
 
 
@@ -79,14 +79,14 @@ def test_za_enabled_without_config_counts_as_two_azs():
     d = {"DomainName": "legacy", "ARN": "arn:legacy", "ClusterConfig": {
         "ZoneAwarenessEnabled": True, "DedicatedMasterEnabled": False, "InstanceCount": 2}}
     scores = by_id(evaluate_opensearch_multiaz([d], {}, R))
-    assert scores["legacy"].score == 10.0
+    assert scores["legacy"].score == 50.0
 
 
 def test_exemption_via_tags_by_arn():
     d = domain("exempt")
     tags = {d["ARN"]: {"disable-multiaz": ""}}
     scores = by_id(evaluate_opensearch_multiaz([d], tags, R))
-    assert scores["exempt"].score == 10.0 and scores["exempt"].exempted
+    assert scores["exempt"].score == 50.0 and scores["exempt"].exempted
 
 
 def test_cross_region_name_match_with_connection_evidence():
@@ -97,7 +97,7 @@ def test_cross_region_name_match_with_connection_evidence():
         "ConnectionStatus": {"StatusCode": "ACTIVE"},
     }]
     scores = by_id(evaluate_opensearch_crossregion([d], {}, {"eu-west-1": {"logs"}}, conns, R))
-    assert scores["logs-us-east-1"].score == 20.0
+    assert scores["logs-us-east-1"].score == 100.0
     assert "heuristic" in scores["logs-us-east-1"].reason
     assert "ACTIVE cross-region connection" in scores["logs-us-east-1"].reason
 

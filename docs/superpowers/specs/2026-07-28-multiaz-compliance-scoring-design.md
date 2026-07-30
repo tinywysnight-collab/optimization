@@ -30,7 +30,7 @@ should ever be granted to this tool.
 
 ## 1. Goal
 
-A Python library entry point that scans a caller-supplied list of AWS accounts for resilience compliance and returns two independent scores per account (each out of 20):
+A Python library entry point that scans a caller-supplied list of AWS accounts for resilience compliance and returns two independent scores per account (each 0–100):
 
 - **Multi-AZ score**: whether resources in the primary region have AZ-level redundancy;
 - **Cross-Region score**: whether primary-region resources have a deployment/standby in another region (only multi-region accounts are scored).
@@ -99,10 +99,19 @@ The caller passes the account list in as a payload (a mapping, shown here as JSO
 
 ## 4. Score aggregation model (two-level)
 
+**Every score is 0–100**, at the resource level and at both levels of
+aggregation. The unit is the same one the final organization-wide score is
+reported in, so a roll-up across many dimensions is a weighted mean with no
+rescaling step and no intermediate total to keep in step with the dimension
+count. Granularity stays coarse on purpose — the underlying judgements are
+pass / partial / fail, so scores land on **100 / 50 / 0** rather than implying a
+precision the checks do not have.
+
+
 For each dimension (Multi-AZ, Cross-Region) independently:
 
 1. **Resource → service dimension score**: arithmetic mean of all resource scores for one service within the account;
-2. **Service dimension → account score**: equal-weight mean of the service dimensions that *actually have scored resources* in that account, scaled to 20.
+2. **Service dimension → account score**: equal-weight mean of the service dimensions that *actually have scored resources* in that account.
 
 - A service dimension with no resources is **N/A**: excluded from the mean, never drags the score down.
 - With multiple regions, resources are **pooled across regions** into one service dimension (in v1 Multi-AZ scans the primary region only, so this rule matters only for future extension).
@@ -110,40 +119,40 @@ For each dimension (Multi-AZ, Cross-Region) independently:
 
 ## 5. Multi-AZ dimension criteria (scans `regions[0]` only)
 
-### 5.1 RDS (max 20)
+### 5.1 RDS (0–100)
 
 - **The scoring unit is the primary instance / cluster**; read replicas are not scored separately (otherwise a single-AZ replica would score 0 and penalize the team that built HA).
-- Standard instance: `MultiAZ == true` → 20; or **at least one read replica in a different AZ** → 20.
+- Standard instance: `MultiAZ == true` → 100; or **at least one read replica in a different AZ** → 100.
 - **A same-AZ replica does not count as HA** (if the AZ dies, the replica dies with it). The reason must state this, e.g. "has 1 read replica but it shares us-east-1a with the primary; no AZ-level redundancy, score 0".
 - **A replica in another region does not count either** — promoting one is a cross-region recovery (asynchronous, manual, with an endpoint change), not AZ-level redundancy, and it is already scored in the Cross-Region dimension. RDS returns such replicas as ARNs rather than bare identifiers, so they are distinguishable. The reason must say the replica exists but sits outside the region, never "no read replicas", which would send an operator to build something they already have.
-- **Aurora**: the `MultiAZ` field is always false; instead check whether cluster member instances span ≥2 AZs → 20; single-instance cluster → 0.
+- **Aurora**: the `MultiAZ` field is always false; instead check whether cluster member instances span ≥2 AZs → 100; single-instance cluster → 0.
 - **RDS Multi-AZ DB cluster**: `DescribeDBClusters` returns these non-Aurora
   MySQL/PostgreSQL clusters alongside Aurora. Score the cluster once, never its
   member instances: `MultiAZ == true` and member instances resolved across ≥2 AZs
-  → 20; otherwise → 0 with the missing condition named. A cluster whose
+  → 100; otherwise → 0 with the missing condition named. A cluster whose
   `ReplicationSourceIdentifier` is set is a read replica and is not scored
   separately.
 
-### 5.2 EFS (two items, 10 points each)
+### 5.2 EFS (two items, 50 points each)
 
-- **Storage redundancy (10)**: Regional (`AvailabilityZoneId` empty) → 10; One Zone → 0.
-- **Mount target coverage (10)**: mount targets spread across ≥2 AZs → 10; otherwise 0. AZ identity is taken from `AvailabilityZoneId` for the whole set, falling back to `AvailabilityZoneName` only when no mount target carries an ID — mixing the two field kinds would count one physical AZ twice and produce a false pass.
+- **Storage redundancy (50)**: Regional (`AvailabilityZoneId` empty) → 10; One Zone → 0.
+- **Mount target coverage (50)**: mount targets spread across ≥2 AZs → 10; otherwise 0. AZ identity is taken from `AvailabilityZoneId` for the whole set, falling back to `AvailabilityZoneName` only when no mount target carries an ID — mixing the two field kinds would count one physical AZ twice and produce a false pass.
 - A One Zone file system can only have 1 mount target, so its total is naturally 0. The reason explains both items separately.
 
-### 5.3 ASG (max 20)
+### 5.3 ASG (0–100)
 
-- **Judged by configuration** (not momentary runtime state): associated subnets/AZs cover ≥2 AZs → 20; otherwise 0.
+- **Judged by configuration** (not momentary runtime state): associated subnets/AZs cover ≥2 AZs → 100; otherwise 0.
 - ASGs belonging to EKS node groups / ECS capacity providers are **not excluded** from the Multi-AZ dimension; they are scored normally with their origin noted in the reason (based on tags such as `eks:cluster-name`). AZ coverage is a genuine per-node-group configuration decision. (The Cross-Region dimension treats EKS differently — see §6.)
 - Example reason: "configuration covers us-east-1a/1b/1c (3 AZs), score 20".
 
-### 5.4 OpenSearch (max 20, single score per domain)
+### 5.4 OpenSearch (0–100, single score per domain)
 
 The split the deployment makes is who holds the master role; the score follows it.
 
 - **With dedicated masters** (`DedicatedMasterEnabled`): master placement is AWS-managed
   (spread across three AZs on its own, even for a two-AZ domain), so only the
   **data-node spread** is the operator's decision — and it is binary:
-  - data nodes span ≥2 AZs (`ZoneAwarenessEnabled`) → **20**;
+  - data nodes span ≥2 AZs (`ZoneAwarenessEnabled`) → **100**;
   - single AZ → **0**. A healthy control plane over non-redundant data is not HA:
     quorum would be protecting a cluster that loses its data with its one AZ.
   - Legacy master counts (even, or fewer than three — the console now allows only
@@ -151,8 +160,8 @@ The split the deployment makes is who holds the master role; the score follows i
     odd voting set so even counts round down (2 acts as 1), but the score is unchanged.
 - **Without dedicated masters**: the data nodes hold the master role, so their own
   AZ spread decides quorum survival:
-  - 3 AZs (`ZoneAwarenessConfig.AvailabilityZoneCount == 3`) → **20**;
-  - 2 AZs → **10** — a partition between the two AZs risks split-brain, and losing
+  - 3 AZs (`ZoneAwarenessConfig.AvailabilityZoneCount == 3`) → **100**;
+  - 2 AZs → **50** — a partition between the two AZs risks split-brain, and losing
     the AZ holding the majority of nodes loses quorum;
   - 1 AZ (zone awareness disabled) → **0**.
 - `ZoneAwarenessEnabled` with no `ZoneAwarenessConfig` is the old-style form and
@@ -163,27 +172,27 @@ The split the deployment makes is who holds the master role; the score follows i
   `DescribeDomains`. Index replica counts live in the data-plane API and are not
   checked; a domain whose indexes have zero replicas can still score 20.
 
-### 5.5 FSx (max 20, Windows type only)
+### 5.5 FSx (0–100, Windows type only)
 
-- **FSx for Windows**: `DeploymentType` contains `MULTI_AZ` → 20; SINGLE_AZ types → 0.
+- **FSx for Windows**: `DeploymentType` contains `MULTI_AZ` → 100; SINGLE_AZ types → 0.
 - **Lustre / ONTAP / OpenZFS**: recorded as **N/A**, excluded from scoring, but each resource is listed in the report with an explicit note: "scoring covers FSx for Windows only; this resource is FSx for XXX, recorded N/A".
 
-### 5.6 ElastiCache (max 20, Redis/Valkey only)
+### 5.6 ElastiCache (0–100, Redis/Valkey only)
 
-- **Redis/Valkey replication group**: `MultiAZ == enabled` → 20; otherwise 0.
+- **Redis/Valkey replication group**: `MultiAZ == enabled` → 100; otherwise 0.
 - **Standalone Redis node (no replication group)**: 0, reason "single node, no replica".
 - **Memcached / Serverless / other forms**: recorded as **N/A**, listed in the report with a note that they are excluded from scoring. Engine names are matched case-insensitively, so a `"Redis"` never silently falls into the N/A branch.
 
-### 5.7 ELB (max 20, NLB only)
+### 5.7 ELB (0–100, NLB only)
 
 Scope is **NLB and ALB**; Classic and Gateway load balancers are out of scope and
 recorded **N/A** in both dimensions.
 
-- **Network Load Balancer**: enabled AZs ≥2 → 20; a single AZ → 0. Judged by configuration (`AvailabilityZones` from `DescribeLoadBalancers`), consistent with ASG.
+- **Network Load Balancer**: enabled AZs ≥2 → 100; a single AZ → 0. Judged by configuration (`AvailabilityZones` from `DescribeLoadBalancers`), consistent with ASG.
 - **Application Load Balancer**: recorded as **N/A** in the Multi-AZ dimension. AWS enforces at least two AZ subnets when an ALB is created, so there is no configuration lever to assess — scoring it would add a permanently-full-marks dimension that dilutes real failures elsewhere. Same principle as FSx Lustre in §5.5. (ALB *is* scored in the Cross-Region dimension, where having a standby is a real decision.)
 - **Classic ELB and Gateway Load Balancer**: recorded as **N/A**, listed in the report with a note that scoring covers NLB and ALB only.
 
-### 5.8 MSK (max 20, provisioned clusters only)
+### 5.8 MSK (0–100, provisioned clusters only)
 
 The same "who holds the coordination role" split as OpenSearch §5.4, with the same
 answer as its dedicated-master arm: ZooKeeper / KRaft controllers are AWS-managed
@@ -191,8 +200,8 @@ answer as its dedicated-master arm: ZooKeeper / KRaft controllers are AWS-manage
 spread** is scored. MSK requires every client subnet to sit in a distinct AZ, so
 the subnet count is the AZ count (`ZoneIds` wins when present):
 
-- 3 AZs → **20**;
-- 2 AZs → **10** — replicas of a replication-factor-3 topic split 2+1 across two
+- 3 AZs → **100**;
+- 2 AZs → **50** — replicas of a replication-factor-3 topic split 2+1 across two
   AZs; losing the majority AZ leaves one in-sync replica, and the standard
   `min.insync.replicas=2` then blocks producers. MSK recommends three AZs and
   Express brokers require them;
@@ -204,7 +213,7 @@ the subnet count is the AZ count (`ZoneIds` wins when present):
   to the control plane — the same class of blind spot as OpenSearch index replica
   counts. A 3-AZ cluster whose topics have RF=1 still scores 20.
 
-## 6. Cross-Region dimension criteria (max 20, independent of the Multi-AZ score)
+## 6. Cross-Region dimension criteria (0–100, independent of the Multi-AZ score)
 
 - **Scope is decided by `pattern_id`, not by region count.** Only accounts whose pattern contains the marker `GS-001` (substring, case-insensitive) are expected to run a standby, so only they are scored here. Every other account is **N/A** — never 0 — and the note names the pattern and the missing marker, so a reader can tell "not required" from "required and missing".
 - For an in-scope account the standby is **`regions[1]`**, and the loader guarantees there is no third region to consider (§2). `AccountSpec.standby_regions` still narrows to that one region on its own, so a spec constructed in code cannot widen the check by accident.
@@ -215,15 +224,15 @@ the subnet count is the AZ count (`ZoneIds` wins when present):
 
 | Service | Detection | Full score condition |
 |---|---|---|
-| RDS | Native API: cross-region read replica / Aurora Global Database | relation reaches `regions[1]` → 20 |
-| EFS | Native API: replication configuration (`DescribeReplicationConfigurations` raises `ReplicationNotFound` — rather than returning an empty list — when the region has no replication configs at all; that is "no replications", never a scan failure) | destination is `regions[1]` → 20 |
-| ElastiCache Redis | Native API: Global Datastore membership and member Regions | datastore has a member in `regions[1]` → 20 |
-| ASG (non-EKS only) | **Name-matching heuristic**: same name after region-stripping exists in a standby region | match → 20 |
-| EKS | **Name-matching heuristic**: same cluster name after region-stripping exists in a standby region (via `ListClusters`) | match → 20 |
-| OpenSearch | **Name-matching heuristic**: same domain name after region-stripping exists in a standby region | match → 20 |
-| ELB (NLB and ALB) | **Name-matching heuristic**: a load balancer of the **same type** and the same name after region-stripping exists in a standby region | match → 20 |
-| MSK (provisioned) | **Name-matching heuristic**: same cluster name after region-stripping exists in a standby region (this estate does not use MSK Replicator; if it ever does, `ListReplicators` offers a native upgrade path) | match → 20 |
-| FSx for Windows | **Name-matching heuristic**: same `Name` tag after region-stripping exists on a Windows file system in a standby region | match → 20 |
+| RDS | Native API: cross-region read replica / Aurora Global Database | relation reaches `regions[1]` → 100 |
+| EFS | Native API: replication configuration (`DescribeReplicationConfigurations` raises `ReplicationNotFound` — rather than returning an empty list — when the region has no replication configs at all; that is "no replications", never a scan failure) | destination is `regions[1]` → 100 |
+| ElastiCache Redis | Native API: Global Datastore membership and member Regions | datastore has a member in `regions[1]` → 100 |
+| ASG (non-EKS only) | **Name-matching heuristic**: same name after region-stripping exists in a standby region | match → 100 |
+| EKS | **Name-matching heuristic**: same cluster name after region-stripping exists in a standby region (via `ListClusters`) | match → 100 |
+| OpenSearch | **Name-matching heuristic**: same domain name after region-stripping exists in a standby region | match → 100 |
+| ELB (NLB and ALB) | **Name-matching heuristic**: a load balancer of the **same type** and the same name after region-stripping exists in a standby region | match → 100 |
+| MSK (provisioned) | **Name-matching heuristic**: same cluster name after region-stripping exists in a standby region (this estate does not use MSK Replicator; if it ever does, `ListReplicators` offers a native upgrade path) | match → 100 |
+| FSx for Windows | **Name-matching heuristic**: same `Name` tag after region-stripping exists on a Windows file system in a standby region | match → 100 |
 
 - **RDS distinguishes its two cluster families**: Aurora clusters use Global
   Database membership; non-Aurora RDS Multi-AZ DB clusters use
@@ -255,9 +264,9 @@ the subnet count is the AZ count (`ZoneIds` wins when present):
   - Multi-AZ: tag key = `disable-multiaz`
   - Cross-Region: tag key = `disable-crossregion`
 - **Key presence alone activates the exemption; the value is ignored.**
-- Semantics are a floor, not a cap: final resource score = `max(actual score, 10)`. A resource that passes its check still gets 20.
-- For split-scored services (EFS, OpenSearch): the exemption applies to the **resource total** (`max(sum of items, 10)`), not per item.
-- Reason wording: "multi-AZ not enabled, but exception tag `disable-multiaz` present; 10/20 per exemption rule".
+- Semantics are a floor, not a cap: final resource score = `max(actual score, 50)`. A resource that passes its check still gets 100.
+- For split-scored services (EFS, OpenSearch): the exemption applies to the **resource total** (`max(sum of items, 50)`), not per item.
+- Reason wording: "multi-AZ not enabled, but exception tag `disable-multiaz` present; 50/100 per exemption rule".
 - **No account-level exemption** (out of scope for v1; if needed, handle via an allowlist at the report layer, never inside the scoring engine).
 
 ## 8. N/A semantics and fault tolerance

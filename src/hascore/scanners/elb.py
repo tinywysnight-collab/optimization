@@ -36,7 +36,7 @@ def evaluate_elb_multiaz(load_balancers: list[AwsDict], region: str) -> list[Res
             continue
         azs = sorted(set(lb.get("azs", [])))
         if len(azs) >= 2:
-            score = 20.0
+            score = 100.0
             reason = f"NLB is enabled in {len(azs)} AZs: {', '.join(azs)}"
         else:
             score = 0.0
@@ -66,7 +66,7 @@ def evaluate_elb_crossregion(load_balancers: list[AwsDict],
         mv = strip_region(name)
         hits = sorted(r for r, pairs in standby_index.items() if (lb_type, mv) in pairs)
         if hits:
-            score = 20.0
+            score = 100.0
             reason = (f"name-matching heuristic: after region-stripping ('{mv}'), a matching "
                       f"{lb_type} load balancer exists in {', '.join(hits)}")
         else:

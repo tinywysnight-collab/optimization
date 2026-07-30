@@ -28,7 +28,7 @@ def by_id(scores):
 
 def test_multiaz_enabled_scores_20():
     scores = by_id(evaluate_rds_multiaz([inst("db1", multi_az=True)], [], R))
-    assert scores["db1"].score == 20.0
+    assert scores["db1"].score == 100.0
     assert "MultiAZ is enabled" in scores["db1"].reason
 
 
@@ -39,7 +39,7 @@ def test_cross_az_replica_scores_20_and_replica_not_scored():
     ]
     scores = by_id(evaluate_rds_multiaz(instances, [], R))
     assert set(scores) == {"primary"}
-    assert scores["primary"].score == 20.0
+    assert scores["primary"].score == 100.0
     assert "us-east-1b" in scores["primary"].reason
 
 
@@ -57,7 +57,7 @@ def test_no_ha_scores_0_and_exemption_tag_floors_to_10():
     instances = [inst("db1"), inst("db2", tags=[("disable-multiaz", "")])]
     scores = by_id(evaluate_rds_multiaz(instances, [], R))
     assert scores["db1"].score == 0.0
-    assert scores["db2"].score == 10.0 and scores["db2"].exempted
+    assert scores["db2"].score == 50.0 and scores["db2"].exempted
 
 
 def test_aurora_scored_at_cluster_level():
@@ -76,7 +76,7 @@ def test_aurora_scored_at_cluster_level():
     ]
     scores = by_id(evaluate_rds_multiaz(instances, clusters, R))
     assert set(scores) == {"c-multi", "c-solo"}
-    assert scores["c-multi"].score == 20.0
+    assert scores["c-multi"].score == 100.0
     assert scores["c-solo"].score == 0.0
 
 
@@ -98,7 +98,7 @@ def test_rds_multiaz_db_cluster_is_scored_once_at_cluster_level():
         "TagList": [],
     }]
     scores = evaluate_rds_multiaz(instances, clusters, R)
-    assert [(score.resource_id, score.score) for score in scores] == [("db-cluster", 20.0)]
+    assert [(score.resource_id, score.score) for score in scores] == [("db-cluster", 100.0)]
     assert "RDS Multi-AZ DB cluster" in scores[0].reason
 
 
@@ -120,7 +120,7 @@ def test_cross_region_replica_scores_20():
     arn = "arn:aws:rds:eu-west-1:111111111111:db:dr-replica"
     scores = by_id(evaluate_rds_crossregion(
         [inst("db1", replicas=[arn])], [], [], R, ["us-east-1", "eu-west-1"]))
-    assert scores["db1"].score == 20.0
+    assert scores["db1"].score == 100.0
     assert "eu-west-1" in scores["db1"].reason
 
 
@@ -136,7 +136,7 @@ def test_cross_region_replica_outside_the_designated_standby_scores_0():
 def test_no_cross_region_replica_scores_0_and_exemption_applies():
     scores = by_id(evaluate_rds_crossregion(
         [inst("db1", tags=[("disable-crossregion", "")])], [], [], R, ["us-east-1", "eu-west-1"]))
-    assert scores["db1"].score == 10.0 and scores["db1"].exempted
+    assert scores["db1"].score == 50.0 and scores["db1"].exempted
 
 
 def test_aurora_cluster_with_no_resolvable_members_reason_is_truthful():
@@ -156,7 +156,7 @@ def test_aurora_global_database_member_scores_20():
         {"DBClusterArn": "arn:aws:rds:eu-west-1:1:cluster:c1-dr"},
     ]}]
     scores = by_id(evaluate_rds_crossregion([], [cluster], global_clusters, R, ["us-east-1", "eu-west-1"]))
-    assert scores["c1"].score == 20.0
+    assert scores["c1"].score == 100.0
     assert "eu-west-1" in scores["c1"].reason
 
 
@@ -189,7 +189,7 @@ def test_rds_multiaz_db_cluster_cross_region_replica_scores_20():
     }
     scores = by_id(evaluate_rds_crossregion(
         [], [cluster], [], R, ["us-east-1", "eu-west-1"]))
-    assert scores["db-cluster"].score == 20.0
+    assert scores["db-cluster"].score == 100.0
     assert "eu-west-1" in scores["db-cluster"].reason
     assert "Aurora" not in scores["db-cluster"].reason
 

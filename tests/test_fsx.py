@@ -18,7 +18,7 @@ def by_id(scores):
 
 def test_windows_multi_az_scores_20():
     scores = by_id(evaluate_fsx_multiaz([fs("fs-1")], R))
-    assert scores["fs-1"].score == 20.0
+    assert scores["fs-1"].score == 100.0
     assert "MULTI_AZ_1" in scores["fs-1"].reason
 
 
@@ -29,7 +29,7 @@ def test_windows_single_az_scores_0_and_exemption_floors():
     ]
     scores = by_id(evaluate_fsx_multiaz(filesystems, R))
     assert scores["fs-1"].score == 0.0
-    assert scores["fs-2"].score == 10.0 and scores["fs-2"].exempted
+    assert scores["fs-2"].score == 50.0 and scores["fs-2"].exempted
 
 
 def test_non_windows_types_are_na_with_explicit_note():
@@ -49,7 +49,7 @@ def test_match_value_is_the_name_tag():
 def test_cross_region_name_match_scores_20():
     filesystems = [fs("fs-1", tags=[("Name", "share-us-east-1")])]
     scores = by_id(evaluate_fsx_crossregion(filesystems, {"eu-west-1": {"share"}}, R))
-    assert scores["fs-1"].score == 20.0
+    assert scores["fs-1"].score == 100.0
     assert "heuristic" in scores["fs-1"].reason
     assert "eu-west-1" in scores["fs-1"].reason
 
@@ -69,7 +69,7 @@ def test_windows_without_name_tag_scores_0_not_na():
 def test_cross_region_exemption_floors_to_10():
     filesystems = [fs("fs-1", tags=[("Name", "share"), ("disable-crossregion", "")])]
     scores = by_id(evaluate_fsx_crossregion(filesystems, {"eu-west-1": set()}, R))
-    assert scores["fs-1"].score == 10.0 and scores["fs-1"].exempted
+    assert scores["fs-1"].score == 50.0 and scores["fs-1"].exempted
 
 
 def test_cross_region_non_windows_is_na():

@@ -1,4 +1,4 @@
-"""OpenSearch evaluators (spec §5.4, §6): data plane 10 + control plane 10; name-matching cross-region."""
+"""OpenSearch evaluators (spec §5.4, §6): data plane 50 + control plane 50; name-matching cross-region."""
 from __future__ import annotations
 
 from typing import Any
@@ -32,7 +32,7 @@ def evaluate_opensearch_multiaz(domains: list[AwsDict], tags_by_arn: dict[str, d
             # Master placement is AWS-managed (spread over three AZs on its own),
             # so only the data-node spread is the operator's decision: binary.
             if az_count >= 2:
-                score = 20.0
+                score = 100.0
                 reason = (f"data nodes span {az_count} AZs (zone awareness enabled); dedicated "
                           "masters present, and their placement is AWS-managed")
             else:
@@ -47,11 +47,11 @@ def evaluate_opensearch_multiaz(domains: list[AwsDict], tags_by_arn: dict[str, d
         else:
             # Data nodes hold the master role, so their AZ spread decides quorum.
             if az_count >= 3:
-                score = 20.0
+                score = 100.0
                 reason = ("data nodes span 3 AZs; no dedicated masters — data nodes hold the "
                           "master role, and three AZs keep a majority through any single-AZ loss")
             elif az_count == 2:
-                score = 10.0
+                score = 50.0
                 reason = ("data nodes span only 2 AZs with no dedicated masters — a partition "
                           "between the two AZs risks split-brain, and losing the larger AZ "
                           "loses master quorum")
@@ -82,7 +82,7 @@ def evaluate_opensearch_crossregion(domains: list[AwsDict], tags_by_arn: dict[st
         mv = strip_region(name)
         hits = sorted(r for r, names in standby_domains.items() if mv in names)
         if hits:
-            score = 20.0
+            score = 100.0
             reason = (f"name-matching heuristic: after region-stripping ('{mv}'), "
                       f"a matching domain exists in {', '.join(hits)}")
         else:

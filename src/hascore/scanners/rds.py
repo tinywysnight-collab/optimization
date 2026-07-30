@@ -40,9 +40,9 @@ def evaluate_rds_multiaz(instances: list[AwsDict], clusters: list[AwsDict], regi
         remote_replicas = [r for r in all_replicas if r not in az_by_id]
         cross_az = [r for r in local_replicas if az_by_id[r] and az_by_id[r] != primary_az]
         if inst.get("MultiAZ"):
-            score, reason = 20.0, "MultiAZ is enabled"
+            score, reason = 100.0, "MultiAZ is enabled"
         elif cross_az:
-            score = 20.0
+            score = 100.0
             reason = (f"MultiAZ disabled, but read replica '{cross_az[0]}' is in "
                       f"{az_by_id[cross_az[0]]} while the primary is in {primary_az}; "
                       "cross-AZ replica provides AZ redundancy")
@@ -72,7 +72,7 @@ def evaluate_rds_multiaz(instances: list[AwsDict], clusters: list[AwsDict], regi
         cluster_type = "Aurora cluster" if aurora else "RDS Multi-AZ DB cluster"
         configured = aurora or bool(cluster.get("MultiAZ"))
         if configured and len(member_azs) >= 2:
-            score = 20.0
+            score = 100.0
             reason = (f"{cluster_type} instances span {len(member_azs)} AZs "
                       f"({', '.join(sorted(az for az in member_azs if az is not None))})")
         else:
@@ -112,7 +112,7 @@ def evaluate_rds_crossregion(instances: list[AwsDict], clusters: list[AwsDict], 
         }
         if standby_region in replica_regions:
             reason = f"cross-region read replica exists in designated standby {standby_region}"
-            score = 20.0
+            score = 100.0
         elif replica_regions:
             score = 0.0
             reason = (f"cross-region read replica exists in {', '.join(sorted(replica_regions))}, "
@@ -137,7 +137,7 @@ def evaluate_rds_crossregion(instances: list[AwsDict], clusters: list[AwsDict], 
         if _is_aurora(cluster):
             others = other_regions_by_arn.get(cluster.get("DBClusterArn", ""), set())
             if standby_region in others:
-                score = 20.0
+                score = 100.0
                 reason = (f"member of an Aurora Global Database with a cluster in "
                           f"designated standby {standby_region}")
             elif others:
@@ -155,7 +155,7 @@ def evaluate_rds_crossregion(instances: list[AwsDict], clusters: list[AwsDict], 
                 if replica.startswith("arn:") and _arn_region(replica) != primary_region
             }
             if standby_region in replica_regions:
-                score = 20.0
+                score = 100.0
                 reason = (f"RDS Multi-AZ DB cluster has a cross-region read replica in "
                           f"designated standby {standby_region}")
             elif replica_regions:

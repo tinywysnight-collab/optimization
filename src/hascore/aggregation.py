@@ -1,4 +1,4 @@
-"""Two-level aggregation: resource -> service dimension -> account (0-20)."""
+"""Two-level aggregation: resource -> service dimension -> account (0-100)."""
 from __future__ import annotations
 
 from .models import DimensionResult, ResourceScore

@@ -31,7 +31,7 @@ def evaluate_fsx_multiaz(filesystems: list[AwsDict], region: str) -> list[Resour
         tags = tags_to_dict(fs.get("Tags"))
         deployment = fs.get("WindowsConfiguration", {}).get("DeploymentType", "UNKNOWN")
         if "MULTI_AZ" in deployment:
-            score, reason = 20.0, f"DeploymentType is {deployment}"
+            score, reason = 100.0, f"DeploymentType is {deployment}"
         else:
             score, reason = 0.0, f"DeploymentType is {deployment} — single-AZ deployment"
         score, exempted, suffix = apply_exemption(score, tags, MULTIAZ_TAG)
@@ -61,7 +61,7 @@ def evaluate_fsx_crossregion(filesystems: list[AwsDict], standby_names: dict[str
             mv = strip_region(raw_name)
             hits = sorted(r for r, names in standby_names.items() if mv in names)
             if hits:
-                score = 20.0
+                score = 100.0
                 reason = (f"name-matching heuristic: after region-stripping the Name tag "
                           f"('{mv}'), a matching Windows file system exists in {', '.join(hits)}")
             else:

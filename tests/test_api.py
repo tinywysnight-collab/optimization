@@ -23,7 +23,7 @@ def fake_factory(spec):
 
 def fake_scan(session, spec):
     return ServiceScan(
-        multi_az=[ResourceScore("rds", "db1", "us-east-1", 20.0, "MultiAZ is enabled")],
+        multi_az=[ResourceScore("rds", "db1", "us-east-1", 100.0, "MultiAZ is enabled")],
         cross_region=[ResourceScore("rds", "db1", "us-east-1", 0.0, "no cross-region read replica")],
     )
 
@@ -55,7 +55,7 @@ def test_json_format_returns_the_report_dict(scanners):
     report = run("json")
     assert isinstance(report, dict)
     acct = next(a for a in report["accounts"] if a["account_id"] == "123456789012")
-    assert acct["scores"] == {"multi_az": 20.0, "cross_region": 0.0}
+    assert acct["scores"] == {"multi_az": 100.0, "cross_region": 0.0}
     assert acct["pattern_id"] == "GS-001"
     assert acct["application"] == {"name": "pay"}
 

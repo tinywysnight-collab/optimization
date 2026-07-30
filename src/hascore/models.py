@@ -48,7 +48,7 @@ class ResourceScore:
     service: str          # scanner registry key, e.g. "rds", "efs", "eks", "msk"
     resource_id: str
     region: str
-    score: float | None   # 0-20; None = N/A (excluded from aggregation)
+    score: float | None   # 0-100; None = N/A (excluded from aggregation)
     reason: str
     exempted: bool = False
 
