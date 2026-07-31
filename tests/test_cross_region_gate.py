@@ -101,3 +101,45 @@ def test_a_single_region_account_outside_the_pattern_is_fine():
     payload = {"accounts": [{
         "account_id": "123456789012", "regions": ["ap-south-1"], "pattern_id": "PATTERN-A1"}]}
     assert parse_accounts(payload)[0].standby_regions == []
+
+
+# --- PTM: independent regions, all assessed for Multi-AZ, never Cross-Region ---
+
+def test_ptm_marks_every_region_for_multiaz():
+    s = spec("PTM", regions=("ap-south-1", "eu-west-1", "us-east-1"))
+    assert s.multiaz_regions == ["ap-south-1", "eu-west-1", "us-east-1"]
+
+
+def test_ptm_is_never_in_cross_region_scope():
+    """Independent deployments are not standbys for one another."""
+    s = spec("PTM", regions=("ap-south-1", "eu-west-1"))
+    assert not s.cross_region_required
+    assert s.standby_regions == []
+
+
+def test_ptm_marker_is_a_case_insensitive_substring():
+    assert spec("app-ptm-002", regions=("ap-south-1",)).independent_regions
+    assert spec("PATTERN-PTM", regions=("ap-south-1",)).independent_regions
+    assert not spec("PATTERN-A1", regions=("ap-south-1",)).independent_regions
+
+
+def test_ptm_accepts_any_region_count_including_one():
+    for regions in (("ap-south-1",), ("ap-south-1", "eu-west-1", "us-east-1", "sa-east-1")):
+        s = parse_accounts({"accounts": [{
+            "account_id": "123456789012", "pattern_id": "PTM", "regions": list(regions)}]})[0]
+        assert s.multiaz_regions == list(regions)
+
+
+def test_non_ptm_accounts_are_scanned_in_the_primary_region_only():
+    """A GS-001 standby is a copy, not a separate estate."""
+    assert spec("GS-001", regions=("ap-south-1", "ap-south-2")).multiaz_regions == ["ap-south-1"]
+    assert spec("PATTERN-A1", regions=("ap-south-1", "eu-west-1")).multiaz_regions == ["ap-south-1"]
+
+
+def test_a_pattern_carrying_both_markers_is_rejected():
+    """An account cannot both pair one standby and run independent regions."""
+    payload = {"accounts": [{
+        "account_id": "123456789012", "pattern_id": "GS-001-PTM",
+        "regions": ["ap-south-1", "ap-south-2"]}]}
+    with pytest.raises(InputError, match="both"):
+        parse_accounts(payload)

@@ -6,7 +6,7 @@ from typing import Any
 from ..models import AccountSpec, AwsDict, ResourceScore, ServiceScan
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption
 from .aws_fetch import fetch_elasticache, fetch_elasticache_global_replication_groups
-from .common import capture_cross_region
+from .common import assess_each_region, capture_cross_region
 
 SERVICE = "elasticache"
 _SCORED_ENGINES = ("redis", "valkey")
@@ -116,11 +116,11 @@ def evaluate_elasticache_crossregion(replication_groups: list[AwsDict], cache_cl
 
 def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     primary = spec.regions[0]
-    raw = fetch_elasticache(session, primary)
     out = ServiceScan()
-    out.multi_az = evaluate_elasticache_multiaz(
-        raw["replication_groups"], raw["cache_clusters"], raw["serverless_caches"],
-        raw["tags_by_arn"], primary)
+    out.multi_az, raw = assess_each_region(
+        spec,
+        lambda r: fetch_elasticache(session, r),
+        lambda raw, r: evaluate_elasticache_multiaz(raw["replication_groups"], raw["cache_clusters"], raw["serverless_caches"], raw["tags_by_arn"], r))
     if spec.standby_regions:
         capture_cross_region(out, lambda: evaluate_elasticache_crossregion(
             raw["replication_groups"], raw["cache_clusters"], raw["serverless_caches"],

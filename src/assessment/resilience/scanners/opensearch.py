@@ -11,7 +11,7 @@ from .aws_fetch import (
     fetch_opensearch_connections,
     fetch_opensearch_domain_names,
 )
-from .common import capture_cross_region
+from .common import assess_each_region, capture_cross_region
 
 SERVICE = "opensearch"
 
@@ -99,9 +99,11 @@ def evaluate_opensearch_crossregion(domains: list[AwsDict], tags_by_arn: dict[st
 
 def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     primary = spec.regions[0]
-    raw = fetch_opensearch(session, primary)
     out = ServiceScan()
-    out.multi_az = evaluate_opensearch_multiaz(raw["domains"], raw["tags_by_arn"], primary)
+    out.multi_az, raw = assess_each_region(
+        spec,
+        lambda r: fetch_opensearch(session, r),
+        lambda raw, r: evaluate_opensearch_multiaz(raw["domains"], raw["tags_by_arn"], r))
     if spec.standby_regions:
         def cross_region() -> list[ResourceScore]:
             standby_domains = {

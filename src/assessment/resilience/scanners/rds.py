@@ -6,7 +6,7 @@ from typing import Any
 from ..models import AccountSpec, AwsDict, ResourceScore, ServiceScan
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption, tags_to_dict
 from .aws_fetch import fetch_rds, fetch_rds_global_clusters
-from .common import capture_cross_region
+from .common import assess_each_region, capture_cross_region
 
 SERVICE = "rds"
 
@@ -175,9 +175,11 @@ def evaluate_rds_crossregion(instances: list[AwsDict], clusters: list[AwsDict], 
 
 def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     primary = spec.regions[0]
-    raw = fetch_rds(session, primary)
     out = ServiceScan()
-    out.multi_az = evaluate_rds_multiaz(raw["instances"], raw["clusters"], primary)
+    out.multi_az, raw = assess_each_region(
+        spec,
+        lambda r: fetch_rds(session, r),
+        lambda raw, r: evaluate_rds_multiaz(raw["instances"], raw["clusters"], r))
     if spec.standby_regions:
         capture_cross_region(out, lambda: evaluate_rds_crossregion(
             raw["instances"], raw["clusters"], fetch_rds_global_clusters(session, primary),

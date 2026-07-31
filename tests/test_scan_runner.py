@@ -115,3 +115,42 @@ def test_scan_all_returns_result_per_spec(monkeypatch):
 
 def test_scanner_registry_covers_all_nine_services():
     assert set(SCANNERS) == {"rds", "efs", "asg", "opensearch", "fsx", "elasticache", "elb", "eks", "msk"}
+
+
+def test_ptm_account_is_scanned_in_every_region(monkeypatch):
+    """PTM regions are independent deployments, so each is assessed and the
+    resources pool into one service dimension carrying their own regions."""
+    scanned = []
+
+    def per_region(session, s):
+        out = ServiceScan()
+        for region in s.multiaz_regions:
+            scanned.append(region)
+            out.multi_az.append(ResourceScore("rds", f"db-{region}", region, 100.0, "MultiAZ is enabled"))
+        return out
+
+    patch_scanners(monkeypatch, {"rds": per_region})
+    result = scan_account(
+        AccountSpec("123456789012", ["ap-south-1", "eu-west-1", "us-east-1"], pattern_id="PTM"),
+        session_factory=fake_factory)
+
+    assert scanned == ["ap-south-1", "eu-west-1", "us-east-1"]
+    assert [r.region for r in result.multi_az.resources] == ["ap-south-1", "eu-west-1", "us-east-1"]
+    assert result.multi_az.service_scores == {"rds": 100.0}, "one pooled dimension, not one per region"
+    assert result.cross_region.account_score is None, "independent regions are not standbys"
+
+
+def test_gs001_account_is_scanned_in_the_primary_only(monkeypatch):
+    scanned = []
+
+    def per_region(session, s):
+        out = ServiceScan()
+        for region in s.multiaz_regions:
+            scanned.append(region)
+            out.multi_az.append(ResourceScore("rds", "db", region, 100.0, "MultiAZ is enabled"))
+        return out
+
+    patch_scanners(monkeypatch, {"rds": per_region})
+    scan_account(AccountSpec("123456789012", ["ap-south-1", "ap-south-2"], pattern_id="GS-001"),
+                 session_factory=fake_factory)
+    assert scanned == ["ap-south-1"]

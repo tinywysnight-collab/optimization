@@ -11,6 +11,11 @@ CROSS_REGION = "cross_region"
 # region, so only they are scored on the Cross-Region dimension (spec §6).
 CROSS_REGION_PATTERN = "GS-001"
 
+# Accounts whose pattern carries this marker run several mutually independent
+# regions rather than a primary and a standby, so every region is assessed for
+# Multi-AZ and none of them is a Cross-Region counterpart (spec §2, §5).
+INDEPENDENT_REGIONS_PATTERN = "PTM"
+
 # Raw AWS API response objects. boto3 ships no type stubs, so their shape is Any.
 AwsDict = dict[str, Any]
 
@@ -29,6 +34,20 @@ class AccountSpec:
     def cross_region_required(self) -> bool:
         """Whether this account's pattern puts it in Cross-Region scope."""
         return CROSS_REGION_PATTERN.upper() in (self.pattern_id or "").upper()
+
+    @property
+    def independent_regions(self) -> bool:
+        """Whether this account's regions are separate estates, not a standby pair."""
+        return INDEPENDENT_REGIONS_PATTERN.upper() in (self.pattern_id or "").upper()
+
+    @property
+    def multiaz_regions(self) -> list[str]:
+        """Regions the Multi-AZ dimension assesses.
+
+        Independent deployments each deserve their own verdict; a standby is a
+        copy of the primary, so only the primary is scanned for the rest.
+        """
+        return list(self.regions) if self.independent_regions else self.regions[:1]
 
     @property
     def standby_regions(self) -> list[str]:

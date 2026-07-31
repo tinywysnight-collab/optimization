@@ -7,7 +7,7 @@ from ..models import AccountSpec, AwsDict, ResourceScore, ServiceNote, ServiceSc
 from ..naming import strip_region
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption, tags_to_dict
 from .aws_fetch import fetch_fsx, fetch_fsx_windows_names
-from .common import capture_cross_region
+from .common import assess_each_region, capture_cross_region
 
 SERVICE = "fsx"
 NAME_TAG = "Name"
@@ -76,9 +76,11 @@ def evaluate_fsx_crossregion(filesystems: list[AwsDict], standby_names: dict[str
 
 def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     primary = spec.regions[0]
-    raw = fetch_fsx(session, primary)
     out = ServiceScan()
-    out.multi_az = evaluate_fsx_multiaz(raw["filesystems"], primary)
+    out.multi_az, raw = assess_each_region(
+        spec,
+        lambda r: fetch_fsx(session, r),
+        lambda raw, r: evaluate_fsx_multiaz(raw["filesystems"], r))
     if spec.standby_regions:
         def cross_region() -> list[ResourceScore]:
             standby_names = {

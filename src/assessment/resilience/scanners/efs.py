@@ -6,7 +6,7 @@ from typing import Any
 from ..models import AccountSpec, AwsDict, ResourceScore, ServiceScan
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption, tags_to_dict
 from .aws_fetch import fetch_efs, fetch_efs_replications
-from .common import capture_cross_region
+from .common import assess_each_region, capture_cross_region
 
 SERVICE = "efs"
 
@@ -70,9 +70,11 @@ def evaluate_efs_crossregion(filesystems: list[AwsDict], replications: list[AwsD
 
 def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     primary = spec.regions[0]
-    raw = fetch_efs(session, primary)
     out = ServiceScan()
-    out.multi_az = evaluate_efs_multiaz(raw["filesystems"], raw["mount_targets_by_fs"], primary)
+    out.multi_az, raw = assess_each_region(
+        spec,
+        lambda r: fetch_efs(session, r),
+        lambda raw, r: evaluate_efs_multiaz(raw["filesystems"], raw["mount_targets_by_fs"], r))
     if spec.standby_regions:
         capture_cross_region(out, lambda: evaluate_efs_crossregion(
             raw["filesystems"], fetch_efs_replications(session, primary), primary, spec.regions))

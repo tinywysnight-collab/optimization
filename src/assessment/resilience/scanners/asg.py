@@ -7,7 +7,7 @@ from ..models import AccountSpec, AwsDict, ResourceScore, ServiceScan
 from ..naming import strip_region
 from ..tags import CROSSREGION_TAG, MULTIAZ_TAG, apply_exemption, tags_to_dict
 from .aws_fetch import fetch_asg
-from .common import capture_cross_region
+from .common import assess_each_region, capture_cross_region
 
 SERVICE = "asg"
 EKS_CLUSTER_TAG = "eks:cluster-name"
@@ -63,9 +63,11 @@ def evaluate_asg_crossregion(groups: list[AwsDict], standby_names: dict[str, set
 
 def scan(session: Any, spec: AccountSpec) -> ServiceScan:
     primary = spec.regions[0]
-    groups = fetch_asg(session, primary)["groups"]
     out = ServiceScan()
-    out.multi_az = evaluate_asg_multiaz(groups, primary)
+    out.multi_az, raw = assess_each_region(
+        spec,
+        lambda r: fetch_asg(session, r),
+        lambda raw, r: evaluate_asg_multiaz(raw["groups"], r))
     if spec.standby_regions:
         def cross_region() -> list[ResourceScore]:
             standby_names = {
@@ -73,7 +75,7 @@ def scan(session: Any, spec: AccountSpec) -> ServiceScan:
                     for g in fetch_asg(session, r)["groups"] if not is_eks_asg(g)}
                 for r in spec.standby_regions
             }
-            return evaluate_asg_crossregion(groups, standby_names, primary)
+            return evaluate_asg_crossregion(raw["groups"], standby_names, primary)
 
         capture_cross_region(out, cross_region)
     return out

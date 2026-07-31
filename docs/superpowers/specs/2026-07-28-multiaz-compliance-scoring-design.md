@@ -60,7 +60,10 @@ The caller passes the account list in as a payload (a mapping, shown here as JSO
 - `regions[0]` is the **primary region**: Multi-AZ scoring scans the primary region only.
 - `regions[1]` is the **standby region**, used only by the Cross-Region dimension and only for accounts in its scope (§6).
 - Region values must be non-empty strings, **names botocore recognises**, and **unique** within an account. An unknown region is rejected at parse time, where it reads as the payload error it is, rather than later as a wall of per-service endpoint failures on that account. The check uses botocore's region list across every partition it ships, not `get_partition_for_region`, which only pattern-matches and so accepts a plausible typo like `ap-south-99`. The message names a stale `boto3` as the other cause when the region is genuinely new. An account whose `pattern_id` carries the Cross-Region marker must list **exactly two distinct regions** — primary, then standby. One region, a duplicated region, and three or more regions are **rejected at parse time**: the pattern names one primary and one standby, so a payload that disagrees is a contradiction to surface immediately rather than paper over by ignoring the extras, and failing fast beats discovering it after scanning hundreds of accounts. Accounts outside the pattern may list any number of distinct regions.
-- `pattern_id` is an optional string. It is copied into the output and the `GS-001` marker determines Cross-Region scope (§6); any other content is uninterpreted.
+- `pattern_id` is an optional string, copied into the output. Two markers in it change scope; any other content is uninterpreted. Both match as a **substring, case-insensitively**:
+  - **`GS-001`** — the account runs a designated standby. Cross-Region is scored (§6), and the payload must list exactly two distinct regions.
+  - **`PTM`** — the account runs **several mutually independent regions**. Multi-AZ is assessed in **every** listed region; Cross-Region is **N/A**, because independent deployments are not standbys for one another. Any number of regions is accepted, including one.
+  - A `pattern_id` carrying **both** markers is **rejected at parse time**: an account cannot both pair one standby and run independent regions, and silently honouring one marker would hide the contradiction.
 - `application` is optional arbitrary JSON metadata. It is copied **verbatim** into JSON output and rendered safely in HTML; when omitted it defaults to an empty mapping.
 - `environment` is an optional string (`production`, `uat`, `dev`, whatever the caller uses) shown in the report so a reader can tell which estate a row belongs to. It is **display-only**: uninterpreted, never scored, and never a scope gate. Values are not validated against a fixed list — the caller owns the vocabulary.
 
@@ -117,7 +120,16 @@ For each dimension (Multi-AZ, Cross-Region) independently:
 - With multiple regions, resources are **pooled across regions** into one service dimension (in v1 Multi-AZ scans the primary region only, so this rule matters only for future extension).
 - If per-service weighting is ever needed, the equal-weight model is the all-weights=1 special case of a weighted model; the code structure supports it directly.
 
-## 5. Multi-AZ dimension criteria (scans `regions[0]` only)
+## 5. Multi-AZ dimension criteria
+
+**Which regions are scanned depends on the pattern.** A `PTM` account runs
+independent deployments, so each of its regions is assessed on its own merits;
+every other account is scanned in `regions[0]` only, since a `GS-001` standby is
+a copy rather than a separate estate.
+
+Resources from every scanned region **pool into one service dimension** per §4 —
+an account gets one `rds` score, not one per region — and each resource carries
+its own region in the report so a failure can be located.
 
 ### 5.1 RDS (0–100)
 

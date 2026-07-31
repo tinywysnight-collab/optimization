@@ -5,7 +5,7 @@ import re
 from typing import Any
 
 from .assume_role import known_regions
-from .models import CROSS_REGION_PATTERN, AccountSpec
+from .models import CROSS_REGION_PATTERN, INDEPENDENT_REGIONS_PATTERN, AccountSpec
 
 _ACCOUNT_ID = re.compile(r"^\d{12}$")
 
@@ -52,6 +52,11 @@ def parse_accounts(payload: dict[str, Any]) -> list[AccountSpec]:
             application=raw.get("application", {}),
             role_name=raw.get("role_name"),
         )
+        if spec.cross_region_required and spec.independent_regions:
+            raise InputError(
+                f"accounts[{i}] ({account_id}): pattern '{spec.pattern_id}' carries both the "
+                f"{CROSS_REGION_PATTERN} and {INDEPENDENT_REGIONS_PATTERN} markers. An account "
+                "either pairs one standby or runs independent regions; it cannot do both.")
         # Fail fast: the pattern names exactly one primary and one standby, so a
         # payload that disagrees is a contradiction to surface now, not something
         # to discover mid-scan or to paper over by ignoring the extra regions.

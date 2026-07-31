@@ -62,7 +62,14 @@ does not satisfy the check, and the reason says where it actually is.
 
 # Multi-AZ dimension
 
-Scans `regions[0]` only.
+**Which regions are scanned depends on the pattern.** An account whose
+`pattern_id` contains **`PTM`** runs mutually independent deployments, so every
+listed region is assessed; every other account is scanned in `regions[0]` alone,
+since a `GS-001` standby is a copy rather than a separate estate.
+
+Resources from all scanned regions pool into **one** service dimension — an
+account gets one `rds` score, not one per region — and each resource row carries
+its own region, so a failing region is still identifiable.
 
 ## RDS  — 0–100
 
