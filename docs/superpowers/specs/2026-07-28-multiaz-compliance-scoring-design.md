@@ -236,7 +236,9 @@ the subnet count is the AZ count (`ZoneIds` wins when present):
 
 ## 6. Cross-Region dimension criteria (0–100, independent of the Multi-AZ score)
 
-- **Scope is decided by `pattern_id`, not by region count.** Only accounts whose pattern contains the marker `GS-001` (substring, case-insensitive) are expected to run a standby, so only they are scored here. Every other account is **N/A** — never 0 — and the note names the pattern and the missing marker, so a reader can tell "not required" from "required and missing".
+- **Scope is decided by `pattern_id`, not by region count.** Only accounts whose pattern contains the marker `GS-001` (substring, case-insensitive) are expected to run a standby, so only they are scored here. Every other account is **N/A** — never 0 — and the note explains why, so a reader can tell "not required" from "required and missing". The explanation is **specific to why the account is out of scope**, because the two reasons are not the same fact:
+  - **`PTM`** — the note states the account runs mutually independent regions, which are therefore not standbys for one another. Framing a PTM account as merely *missing* `GS-001` reads as a payload someone forgot to mark, when it is a deliberate topology that the pattern already declares.
+  - **Any other pattern** — the note names the pattern and the missing `GS-001` marker, since here the absent marker genuinely is the reason.
 - For an in-scope account the standby is **`regions[1]`**, and the loader guarantees there is no third region to consider (§2). `AccountSpec.standby_regions` still narrows to that one region on its own, so a spec constructed in code cannot widen the check by accident.
 - An in-scope account that does not list exactly two regions never reaches the scan — the input loader rejects it (§2).
 - Aggregation model identical to Multi-AZ (two-level, N/A dimensions excluded).
@@ -305,7 +307,7 @@ Core principle: **"not scanned" and "scanned and found bad" are never conflated;
 | A service API call fails (e.g. missing `fsx:Describe*` permission) | That service dimension marked "scan failed", N/A; other services scored normally; reason records the error |
 | Account has none of a resource type | Service dimension N/A, excluded from the mean |
 | Resource type out of scoring scope (Lustre, Memcached, ...) | Listed per resource in the report with explanation, excluded from scoring |
-| Account outside the Cross-Region pattern (§6) | Cross-Region score N/A, with a note naming the pattern and the missing marker so "not required" stays distinguishable from "required and missing" |
+| Account outside the Cross-Region pattern (§6) | Cross-Region score N/A, with a note giving the reason this account is out of scope — independent regions for `PTM`, the missing marker otherwise — so "not required" stays distinguishable from "required and missing" |
 | Payload contradicts itself (non-array `accounts`, non-mapping entry, bad account id, non-string pattern, empty/duplicate regions, a marked pattern without exactly two distinct regions) | Rejected at parse time by `InputError` — nothing is scanned |
 
 Failure isolation follows the same dimensional boundary as scoring. Primary

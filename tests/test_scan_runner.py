@@ -154,3 +154,27 @@ def test_gs001_account_is_scanned_in_the_primary_only(monkeypatch):
     scan_account(AccountSpec("123456789012", ["ap-south-1", "ap-south-2"], pattern_id="GS-001"),
                  session_factory=fake_factory)
     assert scanned == ["ap-south-1"]
+
+
+def test_ptm_out_of_scope_note_states_independence_not_a_missing_marker(monkeypatch):
+    """A PTM account is out of Cross-Region scope because its regions are independent,
+    not because someone forgot to write GS-001. Saying "does not carry the GS-001
+    marker" reads as a payload defect and sends the reader off to fix the pattern."""
+    patch_scanners(monkeypatch, {"rds": lambda session, s: ServiceScan(multi_az=[rs("rds", 100.0)])})
+
+    result = scan_account(spec(pattern="PTM"), fake_factory)
+
+    assert result.cross_region.account_score is None
+    note = result.cross_region.notes[0].message
+    assert "independent" in note
+    assert "does not carry" not in note, "PTM is a declared topology, not a missing marker"
+
+
+def test_other_patterns_still_name_the_missing_marker(monkeypatch):
+    """Outside PTM the absent marker really is the reason, so keep naming it."""
+    patch_scanners(monkeypatch, {"rds": lambda session, s: ServiceScan(multi_az=[rs("rds", 100.0)])})
+
+    note = scan_account(spec(pattern="XYZ-9"), fake_factory).cross_region.notes[0].message
+
+    assert "XYZ-9" in note
+    assert "GS-001" in note

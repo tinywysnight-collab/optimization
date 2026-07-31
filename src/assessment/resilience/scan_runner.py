@@ -6,7 +6,13 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from .aggregation import finalize_dimension
-from .models import CROSS_REGION_PATTERN, AccountResult, AccountSpec, ServiceNote
+from .models import (
+    CROSS_REGION_PATTERN,
+    INDEPENDENT_REGIONS_PATTERN,
+    AccountResult,
+    AccountSpec,
+    ServiceNote,
+)
 from .scanners import asg, efs, eks, elasticache, elb, fsx, msk, opensearch, rds
 
 # Turns an account spec into a boto3-compatible session scoped to that account.
@@ -67,10 +73,19 @@ def scan_account(spec: AccountSpec, session_factory: SessionFactory) -> AccountR
     if cross_region_scored:
         finalize_dimension(result.cross_region)
     else:
+        # Why the account is out of scope, not merely that it is: a PTM account
+        # declares independent regions, so reporting it as missing GS-001 would
+        # read as a payload someone forgot to mark.
+        if spec.independent_regions:
+            reason = (f"pattern '{spec.pattern_id}' carries the "
+                      f"{INDEPENDENT_REGIONS_PATTERN} marker, so this account's regions are "
+                      "mutually independent rather than standbys for one another, and no "
+                      "cross-region pairing is expected")
+        else:
+            reason = (f"pattern '{spec.pattern_id or '(none)'}' does not carry the "
+                      f"{CROSS_REGION_PATTERN} marker, so no standby region is expected")
         result.cross_region.notes.append(ServiceNote(
-            "all", f"pattern '{spec.pattern_id or '(none)'}' does not carry the "
-                   f"{CROSS_REGION_PATTERN} marker, so no standby region is expected; "
-                   "cross-region dimension recorded N/A"))
+            "all", f"{reason}; cross-region dimension recorded N/A"))
     return result
 
 
