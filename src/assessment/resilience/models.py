@@ -86,6 +86,8 @@ class DimensionResult:
     notes: list[ServiceNote] = field(default_factory=list)
     failed_services: list[str] = field(default_factory=list)
     service_scores: dict[str, float | None] = field(default_factory=dict)
+    # {service: {region: score}} — display only, populated across regions (spec §4)
+    service_scores_by_region: dict[str, dict[str, float | None]] = field(default_factory=dict)
     account_score: float | None = None
 
 

@@ -29,6 +29,13 @@ Two levels of averaging, per dimension:
 
 Both are rounded to one decimal.
 
+**The account score is the only number that ranks an account.** When a dimension
+covers more than one region — a `PTM` account — the report also breaks each
+service down per region, so a pooled score like `rds 66.7` can be traced to the
+region that dragged it down. That breakdown is display only and never feeds back
+into the account number; it is omitted for single-region accounts, where it would
+just restate the service scores.
+
 The unit is deliberately the same one the final organization-wide score is
 reported in, so rolling several dimensions together is a weighted mean with no
 rescaling. Granularity stays coarse — the judgements underneath are pass /

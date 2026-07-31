@@ -117,6 +117,7 @@ For each dimension (Multi-AZ, Cross-Region) independently:
 2. **Service dimension → account score**: equal-weight mean of the service dimensions that *actually have scored resources* in that account.
 
 - A service dimension with no resources is **N/A**: excluded from the mean, never drags the score down.
+- **The account score is the only score that ranks an account.** When a dimension covers more than one region (a `PTM` account, §2), the report additionally breaks each service dimension down **per region** — `{"rds": {"ap-south-1": 100, "eu-west-1": 0}}`. This is **display only**: it locates which region dragged a pooled score down, and never feeds back into the account number. It is omitted when only one region was scanned, where it would just restate the service scores.
 - With multiple regions, resources are **pooled across regions** into one service dimension (in v1 Multi-AZ scans the primary region only, so this rule matters only for future extension).
 - If per-service weighting is ever needed, the equal-weight model is the all-weights=1 special case of a weighted model; the code structure supports it directly.
 

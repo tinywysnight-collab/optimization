@@ -1,5 +1,6 @@
 # tests/test_reports.py
 from assessment.resilience.models import AccountResult, AccountSpec, ResourceScore, ServiceNote
+from assessment.resilience.aggregation import finalize_dimension
 from assessment.resilience.report.json_report import build_report
 
 
@@ -141,3 +142,36 @@ def test_missing_environment_renders_without_a_gap():
     report = build_report([AccountResult(spec=spec)])
     assert report["accounts"][0]["environment"] is None
     assert "None" not in render_html(report), "a missing environment must not print None"
+
+
+def _multi_region_result():
+    spec = AccountSpec("123456789012", ["ap-south-1", "eu-west-1"], pattern_id="PTM")
+    result = AccountResult(spec=spec)
+    result.multi_az.resources = [
+        ResourceScore("rds", "db-a", "ap-south-1", 100.0, "MultiAZ is enabled"),
+        ResourceScore("rds", "db-b", "eu-west-1", 0.0, "MultiAZ disabled and no read replicas")]
+    finalize_dimension(result.multi_az)
+    return result
+
+
+def test_json_carries_the_per_region_breakdown():
+    dim = build_report([_multi_region_result()])["accounts"][0]["dimensions"]["multi_az"]
+    assert dim["service_scores"] == {"rds": 50.0}, "the ranking score stays pooled"
+    assert dim["service_scores_by_region"] == {"rds": {"ap-south-1": 100.0, "eu-west-1": 0.0}}
+
+
+def test_html_shows_which_region_dragged_the_score_down():
+    html = render_html(build_report([_multi_region_result()]))
+    assert "By region" in html
+    row = next(line for line in html.splitlines() if "rname" in line and "ap-south-1" in line)
+    assert "ap-south-1" in row
+
+
+def test_single_region_report_has_no_breakdown_column():
+    """With one region the breakdown would only restate the service scores."""
+    spec = AccountSpec("123456789012", ["ap-south-1"])
+    result = AccountResult(spec=spec)
+    result.multi_az.resources = [ResourceScore("rds", "db", "ap-south-1", 100.0, "MultiAZ is enabled")]
+    finalize_dimension(result.multi_az)
+    assert build_report([result])["accounts"][0]["dimensions"]["multi_az"]["service_scores_by_region"] == {}
+    assert "By region" not in render_html(build_report([result]))

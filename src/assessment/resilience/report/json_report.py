@@ -12,6 +12,7 @@ def _dimension(dim: DimensionResult) -> dict[str, Any]:
     return {
         "account_score": dim.account_score,
         "service_scores": dim.service_scores,
+        "service_scores_by_region": dim.service_scores_by_region,
         "resources": [asdict(r) for r in dim.resources],
         "notes": [asdict(n) for n in dim.notes],
         "failed_services": dim.failed_services,
