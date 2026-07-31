@@ -10,6 +10,55 @@ The authoritative statement of these rules is
 field names. Behaviour changes land in the spec first — see the spec-first
 workflow in `AGENTS.md`.
 
+## At a glance
+
+One line per service. Each row is the summary of a section below, which gives the
+API fields and the reasoning; read the section before acting on a surprising score.
+
+**Multi-AZ** — scanned in `regions[0]` only, except a `PTM` account, where every
+listed region is scanned and pooled into one score per service.
+
+| Service | Rule |
+|---|---|
+| RDS instance | 100 if `MultiAZ` is true or a read replica sits in a different AZ of the same region, else 0 — replicas and cluster members are never scored on their own |
+| RDS cluster | 100 if member instances span ≥2 AZs, and for an RDS Multi-AZ DB cluster `MultiAZ` must also be true, else 0 |
+| EFS | Two independent halves of 50: Regional storage rather than One Zone, and mount targets in ≥2 AZs |
+| ASG | 100 if the group is *configured* with ≥2 AZs, else 0 — judged on configuration, never on running instances |
+| OpenSearch | With dedicated masters, 100 if data nodes span ≥2 AZs else 0; without them, 100 for 3 AZs, 50 for 2, 0 for 1 |
+| FSx | Windows only: 100 if `DeploymentType` contains `MULTI_AZ`, else 0 — Lustre, ONTAP and OpenZFS are N/A |
+| ElastiCache | Redis/Valkey replication groups only: 100 if `MultiAZ == "enabled"`, else 0 — Memcached and Serverless are N/A |
+| ELB | NLB only: 100 if enabled AZs ≥2, else 0 — ALB is N/A here, Classic and Gateway are N/A everywhere |
+| MSK | Provisioned only: 100 for 3 broker AZs, 50 for 2, 0 for fewer — Serverless is N/A |
+| EKS | Not scored — node group AZ coverage is already counted under ASG, and the control plane has no lever |
+
+**Cross-Region** — only for accounts whose `pattern_id` contains `GS-001`, and the
+standby is `regions[1]` specifically, so a copy in a third region scores 0. Every
+other account, `PTM` included, records N/A.
+
+*Native* — the relationship exists in AWS's own data model, so detection is deterministic:
+
+| Service | Rule |
+|---|---|
+| RDS | 100 if a cross-region read replica, Aurora Global Database member, or Multi-AZ DB cluster replica lives in the designated standby, else 0 |
+| EFS | 100 if a replication configuration targets the designated standby, else 0 |
+| ElastiCache | 100 if a Global Datastore member sits in the designated standby, else 0 |
+
+*Heuristic* — AWS models no relationship, so names are compared with the region
+token stripped out (`payments-ap-south-1-web` matches `payments-ap-south-2-web`).
+Every reason says so, because it can be wrong in both directions:
+
+| Service | Rule |
+|---|---|
+| ASG | 100 if an ASG with the same region-stripped name exists in the standby, else 0 — EKS node group ASGs excluded |
+| EKS | 100 if a cluster with the same region-stripped name exists in the standby, else 0 |
+| OpenSearch | 100 if a domain with the same region-stripped name exists in the standby, else 0 — an active outbound connection is supporting evidence only |
+| ELB | NLB and ALB: 100 if a load balancer of the same **type and** region-stripped name exists in the standby, else 0 |
+| MSK | 100 if a provisioned cluster with the same region-stripped name exists in the standby, else 0 — Replicator is not consulted |
+| FSx for Windows | 100 if a file system whose `Name` tag matches after region-stripping exists in the standby, else 0 |
+
+**Exemptions** — `skip-multiaz-assessment` and `skip-cross-region-assessment` raise
+a resource to 70; a floor, never a cap. Key presence alone activates it.
+
 ## How the numbers combine
 
 Every resource scores **0–100**, or **N/A**. The two are never mixed up:
