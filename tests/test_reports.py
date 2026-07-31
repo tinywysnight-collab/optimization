@@ -1,6 +1,6 @@
 # tests/test_reports.py
-from assessment.resilience.models import AccountResult, AccountSpec, ResourceScore, ServiceNote
 from assessment.resilience.aggregation import finalize_dimension
+from assessment.resilience.models import AccountResult, AccountSpec, ResourceScore, ServiceNote
 from assessment.resilience.report.json_report import build_report
 
 
