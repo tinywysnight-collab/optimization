@@ -4,8 +4,23 @@ from assessment.resilience.assume_role import (
     DEFAULT_ROLE_NAME,
     AssumeRoleSessionFactory,
     build_role_arn,
+    known_regions,
+    partition_for_region,
 )
 from assessment.resilience.models import AccountSpec
+
+
+def test_static_region_data_ignores_the_ambient_profile(monkeypatch):
+    """Region names come from botocore's bundled endpoint data, so looking one up
+    must not resolve the caller's profile. It used to, which made a stale or unset
+    AWS_PROFILE — routine in CI and sandboxes — raise ProfileNotFound out of plain
+    payload validation, long before any credential was actually needed."""
+    known_regions.cache_clear()
+    partition_for_region.cache_clear()
+    monkeypatch.setenv("AWS_PROFILE", "a-profile-that-does-not-exist")
+
+    assert "us-east-1" in known_regions()
+    assert partition_for_region("cn-north-1") == "aws-cn"
 
 
 class FakeSts:

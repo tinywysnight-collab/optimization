@@ -24,11 +24,23 @@ def build_role_arn(account_id: str, role_name: str, partition: str = "aws") -> s
     return f"arn:{partition}:iam::{account_id}:role/{role_name}"
 
 
-@lru_cache
-def partition_for_region(region: str) -> str:
+def _endpoint_data_session() -> Any:
+    """A botocore session for reading bundled endpoint data and nothing else.
+
+    Both lookups below answer from `endpoints.json` inside the botocore wheel, but
+    a default session resolves the ambient profile on the way there, so a stale or
+    empty `AWS_PROFILE` — routine in CI and sandboxes — turned plain payload
+    validation into `ProfileNotFound`. Overriding the `profile` config variable
+    stops the session consulting the environment for a credential it never needs.
+    """
     from botocore.session import Session
 
-    return cast(str, Session().get_partition_for_region(region))
+    return Session(session_vars={"profile": (None, None, None, None)})
+
+
+@lru_cache
+def partition_for_region(region: str) -> str:
+    return cast(str, _endpoint_data_session().get_partition_for_region(region))
 
 
 @lru_cache
@@ -39,9 +51,7 @@ def known_regions() -> frozenset[str]:
     typo like `ap-south-99`; this list is what tells a real region from one that
     merely looks like one.
     """
-    from botocore.session import Session
-
-    session = Session()
+    session = _endpoint_data_session()
     regions: set[str] = set()
     for partition in session.get_available_partitions():
         regions |= set(session.get_available_regions("sts", partition_name=partition))

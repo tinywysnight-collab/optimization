@@ -19,6 +19,9 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Puts src/ on sys.path for the test run, so `pytest` works in a checkout that has
+# only the dependencies installed — no editable install and no PYTHONPATH to set.
+pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 110
