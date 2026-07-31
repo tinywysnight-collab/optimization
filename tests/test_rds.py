@@ -1,5 +1,6 @@
 # tests/test_rds.py
 from assessment.resilience.scanners.rds import evaluate_rds_crossregion, evaluate_rds_multiaz
+from assessment.resilience.tags import EXEMPT_FLOOR
 
 R = "us-east-1"
 
@@ -53,11 +54,11 @@ def test_same_az_replica_scores_0_with_explicit_reason():
     assert "same" in scores["primary"].reason.lower()
 
 
-def test_no_ha_scores_0_and_exemption_tag_floors_to_10():
+def test_no_ha_scores_0_and_exemption_tag_is_floored():
     instances = [inst("db1"), inst("db2", tags=[("skip-multiaz-assessment", "")])]
     scores = by_id(evaluate_rds_multiaz(instances, [], R))
     assert scores["db1"].score == 0.0
-    assert scores["db2"].score == 50.0 and scores["db2"].exempted
+    assert scores["db2"].score == EXEMPT_FLOOR and scores["db2"].exempted
 
 
 def test_aurora_scored_at_cluster_level():
@@ -136,7 +137,7 @@ def test_cross_region_replica_outside_the_designated_standby_scores_0():
 def test_no_cross_region_replica_scores_0_and_exemption_applies():
     scores = by_id(evaluate_rds_crossregion(
         [inst("db1", tags=[("skip-cross-region-assessment", "")])], [], [], R, ["us-east-1", "eu-west-1"]))
-    assert scores["db1"].score == 50.0 and scores["db1"].exempted
+    assert scores["db1"].score == EXEMPT_FLOOR and scores["db1"].exempted
 
 
 def test_aurora_cluster_with_no_resolvable_members_reason_is_truthful():

@@ -1,4 +1,9 @@
-"""Exception-tag (exemption) semantics: a floor of 50, never a cap.
+"""Exception-tag (exemption) semantics: a floor of 70, never a cap.
+
+70 places a reviewed, accepted gap well clear of a resource nobody has looked at,
+without letting the tag become the cheap route to a good score: the key alone
+activates it, so anyone who can tag a resource can claim it, and a floor much
+nearer 100 would make tagging preferable to actually being redundant.
 
 The keys name the *assessment*, not the feature. `disable-multiaz` would read as
 an instruction to turn a resource's redundancy off — the opposite of what the tag
@@ -12,7 +17,7 @@ from .models import AwsDict
 
 MULTIAZ_TAG = "skip-multiaz-assessment"
 CROSSREGION_TAG = "skip-cross-region-assessment"
-EXEMPT_FLOOR = 50.0
+EXEMPT_FLOOR = 70.0
 
 
 def tags_to_dict(tags: list[AwsDict] | None) -> dict[str, str]:
@@ -30,6 +35,7 @@ def apply_exemption(score: float, tags: dict[str, str], tag_key: str) -> tuple[f
     """
     present = any(k.lower() == tag_key.lower() for k in tags)
     if present and score < EXEMPT_FLOOR:
-        suffix = f"; exception tag '{tag_key}' present, floor raised to 50/100 per exemption rule"
+        suffix = (f"; exception tag '{tag_key}' present, floor raised to "
+                  f"{EXEMPT_FLOOR:g}/100 per exemption rule")
         return EXEMPT_FLOOR, True, suffix
     return score, False, ""

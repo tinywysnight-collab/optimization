@@ -1,5 +1,6 @@
 # tests/test_efs.py
 from assessment.resilience.scanners.efs import evaluate_efs_crossregion, evaluate_efs_multiaz
+from assessment.resilience.tags import EXEMPT_FLOOR
 
 R = "us-east-1"
 
@@ -39,7 +40,7 @@ def test_one_zone_scores_0():
 def test_exemption_applies_to_resource_total():
     scores = by_id(evaluate_efs_multiaz(
         [fs("fs-1", one_zone=True, tags=[("skip-multiaz-assessment", "")])], {"fs-1": []}, R))
-    assert scores["fs-1"].score == 50.0 and scores["fs-1"].exempted
+    assert scores["fs-1"].score == EXEMPT_FLOOR and scores["fs-1"].exempted
 
 
 def test_cross_region_replication_scores_20():

@@ -1,5 +1,6 @@
 # tests/test_elb.py
 from assessment.resilience.scanners.elb import evaluate_elb_crossregion, evaluate_elb_multiaz
+from assessment.resilience.tags import EXEMPT_FLOOR
 
 R = "us-east-1"
 
@@ -28,7 +29,7 @@ def test_single_az_nlb_scores_0_and_exemption_floors():
     ]
     scores = by_id(evaluate_elb_multiaz(lbs, R))
     assert scores["nlb-solo"].score == 0.0
-    assert scores["nlb-exempt"].score == 50.0 and scores["nlb-exempt"].exempted
+    assert scores["nlb-exempt"].score == EXEMPT_FLOOR and scores["nlb-exempt"].exempted
 
 
 def test_alb_is_na_because_aws_enforces_two_azs():
@@ -95,8 +96,8 @@ def test_classic_and_gateway_are_na_in_cross_region_too():
     assert "NLB and ALB" in scores["legacy"].reason
 
 
-def test_exemption_tag_floors_to_10():
+def test_exemption_tag_is_floored():
     scores = by_id(evaluate_elb_crossregion(
         [lb("solo", lb_type="network", tags={"skip-cross-region-assessment": ""})],
         sb("eu-west-1"), R))
-    assert scores["solo"].score == 50.0 and scores["solo"].exempted
+    assert scores["solo"].score == EXEMPT_FLOOR and scores["solo"].exempted

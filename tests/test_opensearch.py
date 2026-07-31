@@ -3,6 +3,7 @@ from assessment.resilience.scanners.opensearch import (
     evaluate_opensearch_crossregion,
     evaluate_opensearch_multiaz,
 )
+from assessment.resilience.tags import EXEMPT_FLOOR
 
 R = "us-east-1"
 
@@ -89,7 +90,7 @@ def test_exemption_via_tags_by_arn():
     d = domain("exempt")
     tags = {d["ARN"]: {"skip-multiaz-assessment": ""}}
     scores = by_id(evaluate_opensearch_multiaz([d], tags, R))
-    assert scores["exempt"].score == 50.0 and scores["exempt"].exempted
+    assert scores["exempt"].score == EXEMPT_FLOOR and scores["exempt"].exempted
 
 
 def test_cross_region_name_match_with_connection_evidence():

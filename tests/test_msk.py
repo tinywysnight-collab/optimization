@@ -1,5 +1,6 @@
 # tests/test_msk.py
 from assessment.resilience.scanners.msk import evaluate_msk_crossregion, evaluate_msk_multiaz
+from assessment.resilience.tags import EXEMPT_FLOOR
 
 R = "ap-south-1"
 
@@ -49,11 +50,12 @@ def test_serverless_is_na_with_note():
     assert "Serverless" in s.reason
 
 
-def test_exemption_floors_a_two_az_cluster_no_lower():
-    """The tag floors failing scores at 10; a 2-AZ cluster already sits at 10."""
+def test_exemption_lifts_a_partially_scoring_cluster_too():
+    """The floor is max(actual, EXEMPT_FLOOR), so it lifts a partial score, not only a
+    failing one. A 2-AZ cluster scores 50 on its own and the tag raises it."""
     tagged = cluster("k2t", subnets=2, tags={"skip-multiaz-assessment": ""})
     s = by_id(evaluate_msk_multiaz([tagged], R))["k2t"]
-    assert s.score == 50.0 and s.exempted is False
+    assert s.score == EXEMPT_FLOOR and s.exempted is True
 
 
 def test_topic_blind_spot_is_stated_in_the_reason():
@@ -80,10 +82,10 @@ def test_no_matching_cluster_scores_0():
     assert "no MSK cluster matching" in s.reason
 
 
-def test_no_match_with_exemption_floors_to_10():
+def test_no_match_with_exemption_is_floored():
     tagged = cluster("kt", tags={"skip-cross-region-assessment": "yes"})
     s = by_id(evaluate_msk_crossregion([tagged], {"ap-south-2": set()}, R))["kt"]
-    assert s.score == 50.0 and s.exempted
+    assert s.score == EXEMPT_FLOOR and s.exempted
 
 
 def test_serverless_is_na_in_cross_region_too():

@@ -3,6 +3,7 @@ from assessment.resilience.scanners.elasticache import (
     evaluate_elasticache_crossregion,
     evaluate_elasticache_multiaz,
 )
+from assessment.resilience.tags import EXEMPT_FLOOR
 
 R = "us-east-1"
 
@@ -46,7 +47,7 @@ def test_replication_group_multi_az_disabled_scores_0_exemption_floors():
     scores = by_id(evaluate_elasticache_multiaz(
         [rg("rg-1", multi_az="disabled"), rg("rg-2", multi_az="disabled")], [], [], tags, R))
     assert scores["rg-1"].score == 0.0
-    assert scores["rg-2"].score == 50.0 and scores["rg-2"].exempted
+    assert scores["rg-2"].score == EXEMPT_FLOOR and scores["rg-2"].exempted
 
 
 def test_standalone_redis_scores_0_member_clusters_skipped():

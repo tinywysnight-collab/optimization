@@ -40,11 +40,17 @@ The unit is deliberately the same one the final organization-wide score is
 reported in, so rolling several dimensions together is a weighted mean with no
 rescaling. Granularity stays coarse — the judgements underneath are pass /
 partial / fail, so scores land on **100 / 50 / 0** rather than implying a
-precision the checks do not have.
+precision the checks do not have. Exempted resources are the one exception, landing
+on 70 (below).
 
 **Exemption tags** put a floor under a failing score, never a cap on a passing
-one: `max(score, 50)`. Tag key presence is enough — the value is ignored, and
+one: `max(score, 70)`. Tag key presence is enough — the value is ignored, and
 matching is case-insensitive.
+
+70 sits deliberately between the two: an exemption is a gap someone reviewed and
+accepted, so it should not score near a resource nobody looked at, but the tag is
+self-applied and unvalidated, so a floor near 100 would make tagging cheaper than
+being redundant. The 30-point gap keeps passing the check worthwhile.
 
 - `skip-multiaz-assessment` — the Multi-AZ dimension
 - `skip-cross-region-assessment` — the Cross-Region dimension

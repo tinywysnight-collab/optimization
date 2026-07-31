@@ -1,5 +1,6 @@
 # tests/test_eks.py
 from assessment.resilience.scanners.eks import evaluate_eks_crossregion
+from assessment.resilience.tags import EXEMPT_FLOOR
 
 R = "ap-south-1"
 
@@ -28,10 +29,10 @@ def test_no_matching_cluster_scores_0():
     assert "no EKS cluster matching" in scores["payments-ap-south-1"].reason
 
 
-def test_exemption_tag_floors_to_10():
+def test_exemption_tag_is_floored():
     scores = by_id(evaluate_eks_crossregion(
         [cluster("solo", tags={"skip-cross-region-assessment": "yes"})], {"ap-south-2": set()}, R))
-    assert scores["solo"].score == 50.0 and scores["solo"].exempted
+    assert scores["solo"].score == EXEMPT_FLOOR and scores["solo"].exempted
 
 
 def test_multiple_standby_regions_all_listed():

@@ -1,5 +1,6 @@
 # tests/test_fsx.py
 from assessment.resilience.scanners.fsx import evaluate_fsx_crossregion, evaluate_fsx_multiaz, fsx_match_value
+from assessment.resilience.tags import EXEMPT_FLOOR
 
 R = "us-east-1"
 
@@ -29,7 +30,7 @@ def test_windows_single_az_scores_0_and_exemption_floors():
     ]
     scores = by_id(evaluate_fsx_multiaz(filesystems, R))
     assert scores["fs-1"].score == 0.0
-    assert scores["fs-2"].score == 50.0 and scores["fs-2"].exempted
+    assert scores["fs-2"].score == EXEMPT_FLOOR and scores["fs-2"].exempted
 
 
 def test_non_windows_types_are_na_with_explicit_note():
@@ -66,10 +67,10 @@ def test_windows_without_name_tag_scores_0_not_na():
     assert "no 'Name' tag" in scores["fs-1"].reason
 
 
-def test_cross_region_exemption_floors_to_10():
+def test_cross_region_exemption_is_floored():
     filesystems = [fs("fs-1", tags=[("Name", "share"), ("skip-cross-region-assessment", "")])]
     scores = by_id(evaluate_fsx_crossregion(filesystems, {"eu-west-1": set()}, R))
-    assert scores["fs-1"].score == 50.0 and scores["fs-1"].exempted
+    assert scores["fs-1"].score == EXEMPT_FLOOR and scores["fs-1"].exempted
 
 
 def test_cross_region_non_windows_is_na():

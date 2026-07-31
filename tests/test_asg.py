@@ -1,4 +1,5 @@
 from assessment.resilience.scanners.asg import evaluate_asg_crossregion, evaluate_asg_multiaz, is_eks_asg
+from assessment.resilience.tags import EXEMPT_FLOOR
 
 R = "us-east-1"
 
@@ -28,7 +29,7 @@ def test_single_az_scores_0_and_exemption_floors():
     ]
     scores = by_id(evaluate_asg_multiaz(groups, R))
     assert scores["solo"].score == 0.0
-    assert scores["exempt"].score == 50.0 and scores["exempt"].exempted
+    assert scores["exempt"].score == EXEMPT_FLOOR and scores["exempt"].exempted
 
 
 def test_eks_origin_noted_in_reason():

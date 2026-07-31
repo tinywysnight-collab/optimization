@@ -292,9 +292,10 @@ the subnet count is the AZ count (`ZoneIds` wins when present):
     a bare `skip-multiaz` can be read as "this resource need not be multi-AZ";
     naming the assessment leaves one reading: do not evaluate this.
 - **Key presence alone activates the exemption; the value is ignored.**
-- Semantics are a floor, not a cap: final resource score = `max(actual score, 50)`. A resource that passes its check still gets 100.
-- For the one split-scored service (EFS, two halves of 50): the exemption applies to the **resource total** (`max(sum of halves, 50)`), not per half.
-- Reason wording: "multi-AZ not enabled, but exception tag `skip-multiaz-assessment` present; 50/100 per exemption rule".
+- Semantics are a floor, not a cap: final resource score = `max(actual score, 70)`. A resource that passes its check still gets 100.
+- **The floor is 70.** An exemption marks a gap somebody reviewed and accepted, which should not land near a resource nobody has looked at — that was the fault of the earlier 50. It stops well short of 100 because the tag is **self-applied and unvalidated**: key presence alone is enough, so anyone able to tag a resource can claim the floor, and a floor close to 100 would make tagging cheaper than being redundant. 70 keeps a 30-point gap, so actually passing the check always pays. Raising it further should come with tightening the tag (a required value — ticket reference, expiry), not on its own.
+- For the one split-scored service (EFS, two halves of 50): the exemption applies to the **resource total** (`max(sum of halves, 70)`), not per half. A resource that passed exactly one half scores 50, below the floor, so an exempt half-passing filesystem is raised to 70.
+- Reason wording: "multi-AZ not enabled, but exception tag `skip-multiaz-assessment` present; 70/100 per exemption rule". The number is **interpolated from the constant**, never written into the string, so the stated reason cannot drift from the score actually awarded.
 - **No account-level exemption** (out of scope for v1; if needed, handle via an allowlist at the report layer, never inside the scoring engine).
 
 ## 8. N/A semantics and fault tolerance
