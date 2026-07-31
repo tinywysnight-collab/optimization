@@ -322,7 +322,7 @@ replication configurations, or OpenSearch outbound connections.
 
 ## 11. Technology choices
 
-- **Python 3.11+ / boto3**, imported as a library (`from hascore import score`).
+- **Python 3.11+ / boto3**, imported as a library (`from assessment.resilience import score`).
 - Required AWS permissions: read-only `Describe*/List*` (covered by `ReadOnlyAccess` or `SecurityAudit`).
 - HTML rendered with a template engine (Jinja2); JSON is the primary artifact, HTML is rendered from the same data.
 - Testing: pytest; the AWS API layer is wrapped behind injectable interfaces; the scoring engine is pure functions, unit-testable offline.

@@ -1,5 +1,5 @@
 # tests/test_fsx.py
-from hascore.scanners.fsx import evaluate_fsx_crossregion, evaluate_fsx_multiaz, fsx_match_value
+from assessment.resilience.scanners.fsx import evaluate_fsx_crossregion, evaluate_fsx_multiaz, fsx_match_value
 
 R = "us-east-1"
 

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-SRC = Path(__file__).resolve().parent.parent / "src" / "hascore"
+SRC = Path(__file__).resolve().parent.parent / "src" / "assessment" / "resilience"
 
 # AWS operation names are snake_case with a leading verb. Only these verbs read.
 READ_VERBS = ("describe", "list", "get")

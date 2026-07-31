@@ -2,9 +2,9 @@ import re
 
 import pytest
 
-from hascore import render_html, score
-from hascore.input_loader import InputError
-from hascore.models import ResourceScore, ServiceScan
+from assessment.resilience import render_html, score
+from assessment.resilience.input_loader import InputError
+from assessment.resilience.models import ResourceScore, ServiceScan
 
 
 class FakeStsClient:
@@ -30,7 +30,7 @@ def fake_scan(session, spec):
 
 @pytest.fixture
 def scanners(monkeypatch):
-    monkeypatch.setattr("hascore.scan_runner.SCANNERS", {"rds": fake_scan})
+    monkeypatch.setattr("assessment.resilience.scan_runner.SCANNERS", {"rds": fake_scan})
 
 
 PAYLOAD = {"accounts": [

@@ -1,5 +1,5 @@
 # tests/test_eks.py
-from hascore.scanners.eks import evaluate_eks_crossregion
+from assessment.resilience.scanners.eks import evaluate_eks_crossregion
 
 R = "ap-south-1"
 

@@ -1,5 +1,8 @@
 # tests/test_opensearch.py
-from hascore.scanners.opensearch import evaluate_opensearch_crossregion, evaluate_opensearch_multiaz
+from assessment.resilience.scanners.opensearch import (
+    evaluate_opensearch_crossregion,
+    evaluate_opensearch_multiaz,
+)
 
 R = "us-east-1"
 

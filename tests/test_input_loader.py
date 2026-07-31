@@ -1,6 +1,6 @@
 import pytest
 
-from hascore.input_loader import InputError, parse_accounts
+from assessment.resilience.input_loader import InputError, parse_accounts
 
 
 def test_parses_full_account_entry():

@@ -1,7 +1,7 @@
 [project]
-name = "hascore"
+name = "assessment"
 version = "0.1.0"
-description = "AWS HA compliance scorer: multi-AZ and cross-region scoring per account"
+description = "AWS account assessments; the resilience KPI scores multi-AZ and cross-region per account"
 requires-python = ">=3.11"
 dependencies = ["boto3>=1.34", "jinja2>=3.1"]
 
@@ -15,7 +15,7 @@ where = ["src"]
 # Without this the Jinja template is left out of the wheel and rendering the
 # HTML report raises TemplateNotFound in any installed copy.
 [tool.setuptools.package-data]
-hascore = ["report/*.j2"]
+"assessment.resilience" = ["report/*.j2"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

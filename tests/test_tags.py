@@ -1,4 +1,4 @@
-from hascore.tags import MULTIAZ_TAG, apply_exemption, tags_to_dict
+from assessment.resilience.tags import MULTIAZ_TAG, apply_exemption, tags_to_dict
 
 
 def test_tags_to_dict_converts_key_value_list():

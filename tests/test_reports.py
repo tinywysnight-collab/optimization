@@ -1,6 +1,6 @@
 # tests/test_reports.py
-from hascore.models import AccountResult, AccountSpec, ResourceScore, ServiceNote
-from hascore.report.json_report import build_report
+from assessment.resilience.models import AccountResult, AccountSpec, ResourceScore, ServiceNote
+from assessment.resilience.report.json_report import build_report
 
 
 def make_result():
@@ -37,7 +37,7 @@ def test_summary_counts_inaccessible():
     assert "generated_at" in report
 
 
-from hascore.report.html_report import render_html
+from assessment.resilience.report.html_report import render_html
 
 
 def test_html_contains_scores_reasons_and_metadata():
@@ -92,7 +92,7 @@ def test_template_is_declared_as_package_data():
 
     pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
     package_data = tomllib.loads(pyproject.read_text())["tool"]["setuptools"]["package-data"]
-    assert any(pattern.endswith(".j2") for pattern in package_data["hascore"])
+    assert any(pattern.endswith(".j2") for pattern in package_data["assessment.resilience"])
 
 
 def test_html_supports_locating_an_account():

@@ -1,4 +1,4 @@
-from hascore.naming import strip_region
+from assessment.resilience.naming import strip_region
 
 
 def test_strips_embedded_region_and_collapses_separators():

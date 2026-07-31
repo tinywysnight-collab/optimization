@@ -1,5 +1,5 @@
 # tests/test_rds.py
-from hascore.scanners.rds import evaluate_rds_crossregion, evaluate_rds_multiaz
+from assessment.resilience.scanners.rds import evaluate_rds_crossregion, evaluate_rds_multiaz
 
 R = "us-east-1"
 

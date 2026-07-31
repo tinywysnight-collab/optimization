@@ -1,5 +1,5 @@
 # tests/test_msk.py
-from hascore.scanners.msk import evaluate_msk_crossregion, evaluate_msk_multiaz
+from assessment.resilience.scanners.msk import evaluate_msk_crossregion, evaluate_msk_multiaz
 
 R = "ap-south-1"
 

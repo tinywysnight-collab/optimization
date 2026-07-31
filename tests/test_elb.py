@@ -1,5 +1,5 @@
 # tests/test_elb.py
-from hascore.scanners.elb import evaluate_elb_crossregion, evaluate_elb_multiaz
+from assessment.resilience.scanners.elb import evaluate_elb_crossregion, evaluate_elb_multiaz
 
 R = "us-east-1"
 

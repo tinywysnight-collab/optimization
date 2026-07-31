@@ -1,5 +1,9 @@
-from hascore.aggregation import compute_account_score, compute_service_scores, finalize_dimension
-from hascore.models import MULTI_AZ, DimensionResult, ResourceScore
+from assessment.resilience.aggregation import (
+    compute_account_score,
+    compute_service_scores,
+    finalize_dimension,
+)
+from assessment.resilience.models import MULTI_AZ, DimensionResult, ResourceScore
 
 
 def rs(service, score):

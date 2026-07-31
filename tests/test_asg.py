@@ -1,4 +1,4 @@
-from hascore.scanners.asg import evaluate_asg_crossregion, evaluate_asg_multiaz, is_eks_asg
+from assessment.resilience.scanners.asg import evaluate_asg_crossregion, evaluate_asg_multiaz, is_eks_asg
 
 R = "us-east-1"
 

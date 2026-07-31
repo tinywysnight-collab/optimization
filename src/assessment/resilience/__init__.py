@@ -1,6 +1,6 @@
 """AWS high-availability compliance scorer.
 
-    from hascore import score
+    from assessment.resilience import score
 
     report = score(payload)        # dict
     html = score(payload, "html")  # str

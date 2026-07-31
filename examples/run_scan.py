@@ -1,8 +1,8 @@
-"""Example caller for hascore. Copy this, replace the payload, run it.
+"""Example caller for the resilience assessment. Copy this, replace the payload, run it.
 
     uv run python examples/run_scan.py
 
-hascore itself is a library: `score(payload, output_format)` scans the accounts
+assessment.resilience is a library: `score(payload, output_format)` scans the accounts
 and returns the result. Everything else — where the payload comes from, what you
 do with the report — belongs to you, which is why it lives here and not in the
 package.
@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from hascore import render_html, score
+from assessment.resilience import render_html, score
 
 MASTER_PROFILE = "master-account"      # profile in ~/.aws/config, or None
 ROLE_NAME = "OrganizationAccountAccessRole"   # role assumed in every account

@@ -1,5 +1,5 @@
 # tests/test_efs.py
-from hascore.scanners.efs import evaluate_efs_crossregion, evaluate_efs_multiaz
+from assessment.resilience.scanners.efs import evaluate_efs_crossregion, evaluate_efs_multiaz
 
 R = "us-east-1"
 

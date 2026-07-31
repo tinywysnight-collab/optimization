@@ -1,7 +1,7 @@
 import pytest
 from botocore.exceptions import ClientError
 
-from hascore.scanners.aws_fetch import (
+from assessment.resilience.scanners.aws_fetch import (
     _collect_next_token,
     _paginate,
     fetch_asg,

@@ -1,6 +1,6 @@
-from hascore.models import AccountSpec, ResourceScore, ServiceScan
-from hascore.scan_runner import SCANNERS, scan_account, scan_all
-from hascore.scanners import asg
+from assessment.resilience.models import AccountSpec, ResourceScore, ServiceScan
+from assessment.resilience.scan_runner import SCANNERS, scan_account, scan_all
+from assessment.resilience.scanners import asg
 
 
 class FakeStsClient:
@@ -31,7 +31,7 @@ def spec(regions=("us-east-1", "eu-west-1"), pattern="GS-001"):
 
 
 def patch_scanners(monkeypatch, mapping):
-    monkeypatch.setattr("hascore.scan_runner.SCANNERS", mapping)
+    monkeypatch.setattr("assessment.resilience.scan_runner.SCANNERS", mapping)
 
 
 def test_happy_path_aggregates_both_dimensions(monkeypatch):

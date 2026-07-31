@@ -1,11 +1,11 @@
 # hascore
 
-`hascore` is a read-only AWS resilience compliance scorer. It evaluates
+`assessment.resilience` is a read-only AWS resilience compliance scorer. It evaluates
 Multi-AZ resilience in an account's primary Region and, for GS-001 patterns,
 deployment or replication into the designated standby at `regions[1]`.
 
 ```python
-from hascore import score
+from assessment.resilience import score
 
 report = score({
     "accounts": [{

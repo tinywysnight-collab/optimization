@@ -1,8 +1,8 @@
 """The Cross-Region dimension is gated by pattern_id, not by region count."""
 import pytest
 
-from hascore.input_loader import InputError, parse_accounts
-from hascore.models import CROSS_REGION_PATTERN, AccountSpec
+from assessment.resilience.input_loader import InputError, parse_accounts
+from assessment.resilience.models import CROSS_REGION_PATTERN, AccountSpec
 
 
 def spec(pattern, regions=("ap-south-1", "ap-south-2")):

@@ -1,5 +1,8 @@
 # tests/test_elasticache.py
-from hascore.scanners.elasticache import evaluate_elasticache_crossregion, evaluate_elasticache_multiaz
+from assessment.resilience.scanners.elasticache import (
+    evaluate_elasticache_crossregion,
+    evaluate_elasticache_multiaz,
+)
 
 R = "us-east-1"
 

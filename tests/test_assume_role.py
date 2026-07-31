@@ -1,11 +1,11 @@
 import pytest
 
-from hascore.assume_role import (
+from assessment.resilience.assume_role import (
     DEFAULT_ROLE_NAME,
     AssumeRoleSessionFactory,
     build_role_arn,
 )
-from hascore.models import AccountSpec
+from assessment.resilience.models import AccountSpec
 
 
 class FakeSts:
